@@ -2,13 +2,29 @@ import {
   type PluginSidebarViewProps,
   type ProjectRef,
   type WorkspaceRef,
+  useHosts,
   useWorkspace,
   useWorkspaces,
 } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/ui";
-import { type ReactNode, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Easing, Image, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { compactAgo, inRecents, toMs } from "../shared/activity";
+import { inRecents, toMs } from "../shared/activity";
+import {
+  type HostBadgeModel,
+  defaultHostAppearance,
+  selectHostBadges,
+  shouldShowSidebarHostLabels,
+} from "../shared/sidebar/host-badges";
+import { deriveIdentityColorName, identityColor } from "../shared/sidebar/identity-colors";
+import { selectWorkspaceLabelDefinitions } from "../shared/sidebar/labels";
+import { selectWorkspaceServiceSummary } from "../shared/sidebar/service-summary";
+import { normalizeCurrentBranch, resolveWorkspaceTitle } from "../shared/sidebar/workspace-row";
+import { WorkspaceMetaRow } from "./sidebar/meta-row";
+import { SidebarPreferencesProvider, useSidebarPreferences } from "./sidebar/preferences";
+import { LINE, ROW_HEIGHT, type Theme, palette } from "./sidebar/theme";
+import { WorkspaceTrailing } from "./sidebar/trailing";
+import { WorkspaceDetailsProvider, useWorkspaceDetail, useWorkspaceDetailsSource } from "./workspace-details";
 import {
   ALL_ID,
   type Daemon,
@@ -28,44 +44,14 @@ import {
 /*
  * The rows copy Paseo's default sidebar (packages/app/src/components/sidebar-workspace-list.tsx and
  * sidebar/sidebar-workspace-row-content.tsx, v0.16): plugins cannot import the app's own rows, so
- * their sizes and colors are repeated here. Colors the plugin theme lacks (the status dots and the
- * extra-muted text) use the app's values for the theme's brightness.
+ * their sizes and colors are repeated here and in ./sidebar/.
  */
 
-type Theme = PluginSidebarViewProps["theme"];
 type ProjectOf = Parameters<typeof keyMatches>[1];
+type HostBadges = ReadonlyMap<string, HostBadgeModel>;
 
-const ROW_HEIGHT = Platform.OS === "web" ? 36 : 44;
-const LINE = 20;
-
-/** Whether the theme is dark, judged by its base surface. */
-function isDark(theme: Theme): boolean {
-  const hex = theme.colors.surface0.replace("#", "");
-  if (hex.length < 6) return true;
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
-  return 0.299 * r + 0.587 * g + 0.114 * b < 128;
-}
-
-function palette(theme: Theme) {
-  const dark = isDark(theme);
-  return {
-    running: dark ? "#5caaf6" : "#268ae0",
-    warning: dark ? "#db932e" : "#b37824",
-    success: dark ? "#35c264" : "#299f51",
-    danger: dark ? "#f7796d" : "#f12e2f",
-    extraMuted: dark ? "#717574" : "#a1a1aa",
-    hover: theme.colors.surface1,
-    selected: theme.colors.surface2,
-  };
-}
-
-/** Paseo's project identity colors, picked by a hash of the project. */
-const IDENTITY = ["#7a6aa8", "#3d7ea6", "#388068", "#a4673a", "#b05c80", "#6a70b8", "#368080", "#b06260", "#8f7838", "#5179b0"];
-function identityColor(key: string): string {
-  let hash = 0;
-  for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return IDENTITY[hash % IDENTITY.length];
-}
+/** Touch clients get no service on the meta row, as in Paseo. */
+const IS_DESKTOP = Platform.OS === "web";
 
 /** The user's last prompt in a workspace, or when it was made. 0 if neither. */
 function usedAt(w: { lastPromptAt: string | null; createdAt: string | null }): number {
@@ -132,60 +118,82 @@ export function ClustersSidebarView({ theme, navigation, active, daemon, onManag
 
   const label = recent ? strings.recentsTooltip(hours) : (cluster?.name ?? strings.allLabel);
 
+  const details = useWorkspaceDetailsSource();
+  const preferences = useSidebarPreferences();
+  // Host badges only say something once the list spans two hosts. Plugins cannot read the app's
+  // per-device host appearance nor tell which host is the desktop's own daemon, so every host
+  // takes the default: its name, in the muted colour.
+  const hosts = useHosts();
+  const listedHosts = groups.flatMap((group) => group.items.map((ref) => ref.hostId)).join("\n");
+  const hostBadges = useMemo(
+    () =>
+      selectHostBadges({
+        hosts: hosts.map((host) => ({ serverId: host.serverId, label: host.label, appearance: defaultHostAppearance() })),
+        localServerId: null,
+        enabled: preferences.rowItems.host && shouldShowSidebarHostLabels(listedHosts.split("\n")),
+      }),
+    [hosts, listedHosts, preferences.rowItems.host],
+  );
+
   return (
-    <View style={{ flex: 1 }}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ flexGrow: 0 }}
-        contentContainerStyle={{ gap: 8, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 4, alignItems: "center" }}
-      >
-        <Circle theme={theme} label={strings.recentsLabel} active={recent} onPress={() => setActive(null)} background="#dbeafe">
-          <Icon name="Zap" size={15} color="#3b82f6" />
-        </Circle>
-        {clusters.map((cl) => (
-          <Circle
-            key={cl.id}
-            theme={theme}
-            label={cl.name}
-            active={cl.id === selected}
-            onPress={() => setActive(cl.id)}
-            background={cl.color}
+    <SidebarPreferencesProvider value={preferences}>
+      <WorkspaceDetailsProvider value={details}>
+        <View style={{ flex: 1 }}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ flexGrow: 0 }}
+            contentContainerStyle={{ gap: 8, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 4, alignItems: "center" }}
           >
-            <ClusterFace cluster={cl} />
-          </Circle>
-        ))}
-        <Circle theme={theme} label={strings.allLabel} active={selected === ALL_ID} onPress={() => setActive(ALL_ID)} background="#e4e4e7">
-          <Icon name="Layers" size={15} color="#52525b" />
-        </Circle>
-        <Circle theme={theme} label={strings.manageLabel} active={false} onPress={onManage} background="transparent" outlined>
-          <Icon name="Plus" size={15} color={c.foregroundMuted} />
-        </Circle>
-      </ScrollView>
-      <Text numberOfLines={1} style={{ color: palette(theme).extraMuted, fontSize: 12, paddingHorizontal: 16, paddingBottom: 4 }}>
-        {label}
-      </Text>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 2, paddingBottom: 16 }}>
-        {groups.map((group) => (
-          <ProjectBlock
-            key={group.key}
-            title={group.title ?? ""}
-            items={group.items}
-            theme={theme}
-            now={now}
-            collapsed={collapsed.has(group.key)}
-            onToggle={() => toggle(group.key)}
-            activeKey={active.workspace?.key ?? null}
-            navigation={navigation}
-            // Only Recents drops projects; a cluster or All lists every one it holds.
-            keep={recent ? (latest, w) => inRecents(latest >= cutoff ? latest : 0, hiddenAt(w), unlimited) : null}
-          />
-        ))}
-        {groups.length === 0 ? (
-          <Text style={{ color: c.foregroundMuted, fontSize: 14, padding: 8 }}>{strings.noWorkspaces}</Text>
-        ) : null}
-      </ScrollView>
-    </View>
+            <Circle theme={theme} label={strings.recentsLabel} active={recent} onPress={() => setActive(null)} background="#dbeafe">
+              <Icon name="Zap" size={15} color="#3b82f6" />
+            </Circle>
+            {clusters.map((cl) => (
+              <Circle
+                key={cl.id}
+                theme={theme}
+                label={cl.name}
+                active={cl.id === selected}
+                onPress={() => setActive(cl.id)}
+                background={cl.color}
+              >
+                <ClusterFace cluster={cl} />
+              </Circle>
+            ))}
+            <Circle theme={theme} label={strings.allLabel} active={selected === ALL_ID} onPress={() => setActive(ALL_ID)} background="#e4e4e7">
+              <Icon name="Layers" size={15} color="#52525b" />
+            </Circle>
+            <Circle theme={theme} label={strings.manageLabel} active={false} onPress={onManage} background="transparent" outlined>
+              <Icon name="Plus" size={15} color={c.foregroundMuted} />
+            </Circle>
+          </ScrollView>
+          <Text numberOfLines={1} style={{ color: palette(theme).extraMuted, fontSize: 12, paddingHorizontal: 16, paddingBottom: 4 }}>
+            {label}
+          </Text>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 2, paddingBottom: 16 }}>
+            {groups.map((group) => (
+              <ProjectBlock
+                key={group.key}
+                title={group.title ?? ""}
+                items={group.items}
+                theme={theme}
+                now={now}
+                collapsed={collapsed.has(group.key)}
+                onToggle={() => toggle(group.key)}
+                activeKey={active.workspace?.key ?? null}
+                navigation={navigation}
+                hostBadges={hostBadges}
+                // Only Recents drops projects; a cluster or All lists every one it holds.
+                keep={recent ? (latest, w) => inRecents(latest >= cutoff ? latest : 0, hiddenAt(w), unlimited) : null}
+              />
+            ))}
+            {groups.length === 0 ? (
+              <Text style={{ color: c.foregroundMuted, fontSize: 14, padding: 8 }}>{strings.noWorkspaces}</Text>
+            ) : null}
+          </ScrollView>
+        </View>
+      </WorkspaceDetailsProvider>
+    </SidebarPreferencesProvider>
   );
 }
 
@@ -258,11 +266,12 @@ interface ProjectBlockProps {
   onToggle: () => void;
   activeKey: string | null;
   navigation: PluginSidebarViewProps["navigation"];
+  hostBadges: HostBadges;
   /** Whether to show the project, given its latest use; null shows it always. */
   keep: ((latest: number, w: ProjectOf) => boolean) | null;
 }
 
-function ProjectBlock({ title, items, theme, now, collapsed, onToggle, activeKey, navigation, keep }: ProjectBlockProps) {
+function ProjectBlock({ title, items, theme, now, collapsed, onToggle, activeKey, navigation, hostBadges, keep }: ProjectBlockProps) {
   const head = useWorkspace(items[0], (w) => ({
     at: usedAt(w),
     hostId: w.hostId,
@@ -286,7 +295,15 @@ function ProjectBlock({ title, items, theme, now, collapsed, onToggle, activeKey
       {collapsed
         ? null
         : items.map((ref) => (
-            <WorkspaceRow key={ref.key} reference={ref} theme={theme} now={now} selected={ref.key === activeKey} navigation={navigation} />
+            <WorkspaceRow
+              key={ref.key}
+              reference={ref}
+              theme={theme}
+              now={now}
+              selected={ref.key === activeKey}
+              navigation={navigation}
+              hostBadge={hostBadges.get(ref.hostId) ?? null}
+            />
           ))}
     </View>
   );
@@ -350,7 +367,7 @@ function ProjectRow({
                 borderRadius: 4,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: identityColor(colorKey),
+                backgroundColor: identityColor(deriveIdentityColorName(colorKey)),
               }}
             >
               <Text style={{ fontSize: 9, color: "#ffffff" }}>{initial}</Text>
@@ -393,28 +410,40 @@ function WorkspaceRow({
   now,
   selected,
   navigation,
+  hostBadge,
 }: {
   reference: WorkspaceRef;
   theme: Theme;
   now: number;
   selected: boolean;
   navigation: PluginSidebarViewProps["navigation"];
+  hostBadge: HostBadgeModel | null;
 }) {
   const w = useWorkspace(reference, (item) => ({
     name: item.name,
     indicator: item.indicator,
     kind: item.kind,
-    enteredAt: toMs(item.statusEnteredAt),
+    branch: item.branch,
+    labels: item.labels,
+    diffStat: item.diffStat,
+    statusEnteredAt: item.statusEnteredAt,
   }));
+  // Change request, checks and services are not in the plugin snapshot; they come from the host's
+  // own workspace directory and fill in once it has listed this workspace.
+  const detail = useWorkspaceDetail(reference);
+  const { titleSource, trailing } = useSidebarPreferences();
   const hover = useHover();
+  const labels = useMemo(() => selectWorkspaceLabelDefinitions(w?.labels, null), [w?.labels]);
   if (!w) return null;
   const c = theme.colors;
   const colors = palette(theme);
+  const currentBranch = detail ? detail.currentBranch : normalizeCurrentBranch(w.branch);
+  const title = resolveWorkspaceTitle({ workspace: { name: w.name, currentBranch }, titleSource });
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      accessibilityLabel={w.name}
+      accessibilityLabel={title}
       onPress={() => navigation.openWorkspace(reference)}
       onHoverIn={hover.onHoverIn}
       onHoverOut={hover.onHoverOut}
@@ -429,17 +458,31 @@ function WorkspaceRow({
         backgroundColor: pressed ? c.surface2 : selected ? colors.selected : hover.hovered ? colors.hover : "transparent",
       })}
     >
-      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, width: "100%" }}>
         <StatusIndicator indicator={w.indicator} kind={w.kind} theme={theme} />
-        <Text
-          numberOfLines={1}
-          style={{ flex: 1, minWidth: 0, color: c.foreground, fontSize: 14, fontWeight: "400", lineHeight: LINE, opacity: hover.hovered ? 1 : 0.76 }}
-        >
-          {w.name}
-        </Text>
-        <Text style={{ height: LINE, lineHeight: LINE, fontSize: 12, color: colors.extraMuted, flexShrink: 0 }}>
-          {compactAgo(w.enteredAt, now)}
-        </Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+            <Text
+              numberOfLines={1}
+              style={{ flex: 1, minWidth: 0, color: c.foreground, fontSize: 14, fontWeight: "400", lineHeight: LINE, opacity: hover.hovered ? 1 : 0.76 }}
+            >
+              {title}
+            </Text>
+            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, flexShrink: 0 }}>
+              <WorkspaceTrailing workspace={w} trailing={trailing} theme={theme} now={now} />
+            </View>
+          </View>
+          <WorkspaceMetaRow
+            theme={theme}
+            currentBranch={currentBranch}
+            // Only hoisted rows name their project; this view always groups by project.
+            projectName={null}
+            hostBadge={hostBadge}
+            prHint={detail?.prHint ?? null}
+            serviceSummary={IS_DESKTOP && detail ? selectWorkspaceServiceSummary(detail.scripts) : null}
+            labels={labels}
+          />
+        </View>
       </View>
     </Pressable>
   );

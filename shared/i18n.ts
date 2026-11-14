@@ -64,6 +64,19 @@ const en = {
   paseoOutdated: (latest: string) => `Outdated: another node runs Paseo ${latest}.`,
   pluginOutdated: (latest: string, command: string) => `Outdated: the newest is ${latest}. Run on this node: ${command}`,
   onNodes: (names: string) => `On ${names}`,
+  // The meta row under a workspace title, in Paseo's own words.
+  checksPassed: "passed",
+  checksFailed: "failed",
+  checksRunning: "running",
+  checksPassedAccessible: "Checks passed",
+  checksFailedAccessible: "Checks failed",
+  checksRunningAccessible: "Checks running",
+  prMerged: "Merged",
+  prClosed: "Closed",
+  pullRequestAccessible: (number: number, mergeRequest: boolean) =>
+    mergeRequest ? `Merge request !${number}` : `Pull request #${number}`,
+  serviceRunning: (name: string) => `Service ${name} running`,
+  serviceUnhealthy: (name: string) => `Service ${name} unhealthy`,
 };
 
 const es: typeof en = {
@@ -130,6 +143,18 @@ const es: typeof en = {
   paseoOutdated: (latest) => `Desactualizado: otro nodo tiene Paseo ${latest}.`,
   pluginOutdated: (latest, command) => `Desactualizado: la última es ${latest}. Ejecuta en este nodo: ${command}`,
   onNodes: (names) => `En ${names}`,
+  checksPassed: "pasó",
+  checksFailed: "falló",
+  checksRunning: "en curso",
+  checksPassedAccessible: "Comprobaciones superadas",
+  checksFailedAccessible: "Comprobaciones fallidas",
+  checksRunningAccessible: "Comprobaciones en curso",
+  prMerged: "Fusionado",
+  prClosed: "Cerrado",
+  pullRequestAccessible: (number, mergeRequest) =>
+    mergeRequest ? `Solicitud de fusión !${number}` : `Solicitud de extracción n.°${number}`,
+  serviceRunning: (name) => `Servicio ${name} en ejecución`,
+  serviceUnhealthy: (name) => `Servicio ${name} con fallos`,
 };
 
 export const LANGUAGES: Record<Language, typeof en> = { en, es };
