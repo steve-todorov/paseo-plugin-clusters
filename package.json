@@ -1,6 +1,6 @@
 {
   "name": "@thisjrodriguez/paseo-plugin-clusters",
-  "version": "0.5.8",
+  "version": "0.5.9-dev.5",
   "files": [
     "paseo-plugin.json",
     "OVERVIEW.md",
@@ -21,7 +21,7 @@
     "test": "node --test client/*.test.ts shared/*.test.ts"
   },
   "devDependencies": {
-    "@getpaseo/plugin": "0.9.0-beta.1",
+    "@getpaseo/plugin": "^0.16.0-beta.2",
     "@tanstack/react-query": "^5.90.11",
     "@types/node": "^26.6.2",
     "@types/react": "~19.2.0",

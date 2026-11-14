@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { inRecents } from "../shared/activity";
 import { LANGUAGES, type Language, type Strings } from "../shared/i18n";
 import { MAX_IMAGE_LENGTH } from "../shared/storage";
 import * as store from "./store";
@@ -96,7 +97,16 @@ export const isWeb = Platform.OS === "web";
 export const COLORS = ["#3b82f6", "#ef4444", "#f97316", "#10b981", "#a855f7", "#eab308", "#ec4899", "#14b8a6"];
 
 export type { Cluster, ClusterState, MergedCluster, SharedState, Daemon, DaemonSync } from "./store";
-export const { ALL_ID, DEFAULT_RECENT_HOURS, MIN_RECENT_HOURS, MAX_RECENT_HOURS } = store;
+export const {
+  ALL_ID,
+  DEFAULT_RECENT_HOURS,
+  MIN_RECENT_HOURS,
+  MAX_RECENT_HOURS,
+  NO_RECENT_LIMIT,
+  keyMatches,
+  normalizeRecentHours,
+  stepRecentHours,
+} = store;
 
 export function clusterIcon(cluster: Pick<Cluster, "name" | "icon">): string {
   const icon = cluster.icon?.trim();
@@ -322,9 +332,9 @@ function projectPathOfKey(key: string): string {
   return key.startsWith("host:") ? key.replace(/^host:[^:]+:/, "").toLowerCase() : "";
 }
 
+/** The bar's window in hours, or NO_RECENT_LIMIT. */
 export function recentHours(): number {
-  const hours = view().recentHours ?? DEFAULT_RECENT_HOURS;
-  return Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, Math.round(hours)));
+  return normalizeRecentHours(view().recentHours);
 }
 const DISPLAY_PREFERENCES = '[data-testid="sidebar-display-preferences-menu"]';
 
@@ -376,13 +386,13 @@ function preferencesTarget(): El | null {
 /**
  * Whether a project belongs in Recents, judged against its own daemon: its window and the projects
  * it hid. The sidebar mixes daemons, so asking the viewed one would drop every project that lives
- * on any other. Belonging to a cluster is not required: Recents shows everything active.
+ * on any other. Belonging to a cluster is not required: Recents shows everything active, or
+ * everything at all when the window has no limit.
  */
 function eligibleFor(key: string, latest: number): boolean {
   const state = store.stateOfKey(key);
   if (!state) return false;
-  const hidden = state.recentHidden ?? {};
-  return latest > (hidden[key] ?? 0);
+  return inRecents(latest, state.recentHidden?.[key], recentHours() === NO_RECENT_LIMIT);
 }
 
 /**
@@ -424,7 +434,8 @@ function applyFilter(): void {
   const cluster = store.mergedClusters().find((c) => c.id === active) ?? null;
   // One window for the whole bar, the one set on the daemon it is anchored to. Recents mixes
   // daemons, and a project ageing out on a clock the user cannot see from here reads as a bug.
-  const cutoff = Date.now() - recentHours() * 60 * 60 * 1000;
+  const hours = recentHours();
+  const cutoff = hours === NO_RECENT_LIMIT ? 0 : Date.now() - hours * 60 * 60 * 1000;
   const latestByKey = new Map<string, number>();
 
   for (const { group, key } of groups) {
@@ -551,8 +562,9 @@ function hideFromRecents(key: string): void {
   if (!daemon) return;
   const state = store.getState(daemon);
   const now = Date.now();
-  // Past the longest window a hide can no longer matter, so old entries are dropped.
-  const oldest = now - MAX_RECENT_HOURS * 60 * 60 * 1000;
+  // Past the longest window a hide can no longer matter, so old entries are dropped. Without a
+  // limit an unused project would come back, so every hide is kept.
+  const oldest = recentHours() === NO_RECENT_LIMIT ? 0 : now - MAX_RECENT_HOURS * 60 * 60 * 1000;
   const hidden = Object.fromEntries(Object.entries(state.recentHidden ?? {}).filter(([, at]) => at >= oldest));
   const recentRank = { ...(state.recentRank ?? {}) };
   delete recentRank[key];

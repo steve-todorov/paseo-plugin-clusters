@@ -23,6 +23,10 @@ import {
   setState,
   startDaemon,
   updateCluster,
+  NO_RECENT_LIMIT,
+  keyMatches,
+  normalizeRecentHours,
+  stepRecentHours,
 } from "./store.ts";
 
 function cluster(name: string): Cluster {
@@ -311,4 +315,31 @@ test("clusters of different nodes can be interleaved in the bar", async () => {
   reorderClusters(["home:a", "work:c", "home:b"]);
 
   assert.deepEqual(mergedClusters().map((c) => c.name), ["A", "C", "B"]);
+});
+
+test("the Recents window is whole hours from 1 to 48, or no limit", () => {
+  assert.equal(normalizeRecentHours(undefined), 24);
+  assert.equal(normalizeRecentHours(0), 1);
+  assert.equal(normalizeRecentHours(100), 48);
+  assert.equal(normalizeRecentHours(5.4), 5);
+  assert.equal(normalizeRecentHours(NO_RECENT_LIMIT), NO_RECENT_LIMIT);
+  assert.equal(normalizeRecentHours(-7), 1);
+});
+
+test("stepping below 1 h turns the limit off, and stepping up from there turns it back on", () => {
+  assert.equal(stepRecentHours(2, -1), 1);
+  assert.equal(stepRecentHours(1, -1), NO_RECENT_LIMIT);
+  assert.equal(stepRecentHours(NO_RECENT_LIMIT, -1), NO_RECENT_LIMIT);
+  assert.equal(stepRecentHours(NO_RECENT_LIMIT, 1), 1);
+  assert.equal(stepRecentHours(47, 1), 48);
+  assert.equal(stepRecentHours(48, 1), 48);
+});
+
+test("a sidebar project key matches the workspaces of that project only", () => {
+  const local = { projectRootPath: "/Home/Me/Work", projectId: "/Home/Me/Work" };
+  assert.equal(keyMatches("host:srv_1:/home/me/work", local), true);
+  assert.equal(keyMatches("host:srv_1:/home/me/work-2", local), false);
+  const remote = { projectRootPath: "/srv/app", projectId: "remote:github.com/acme/app" };
+  assert.equal(keyMatches("remote:github.com/acme/app", remote), true);
+  assert.equal(keyMatches("remote:github.com/acme/other", remote), false);
 });

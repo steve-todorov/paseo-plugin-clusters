@@ -36,7 +36,7 @@ export interface ClusterState {
   recentRank?: Record<string, number>;
   /** The same order as a list, for clients older than 0.3.0. Derived from `recentRank` on write. */
   recentOrder?: string[];
-  /** How long a project stays in Recents, in hours (1–48, default 24). */
+  /** How long a project stays in Recents, in hours (1–48, default 24), or -1 for no limit. */
   recentHours?: number;
   /** Projects hidden from Recents, with when; they come back once used after that. */
   recentHidden?: Record<string, number>;
@@ -74,6 +74,31 @@ export const ALL_ID = "__all__";
 export const DEFAULT_RECENT_HOURS = 24;
 export const MIN_RECENT_HOURS = 1;
 export const MAX_RECENT_HOURS = 48;
+/** Stored as the window to keep every project in Recents, however long ago it was used. */
+export const NO_RECENT_LIMIT = -1;
+
+/** A stored window as the app uses it: whole hours from 1 to 48, or no limit. */
+export function normalizeRecentHours(hours: number | undefined): number {
+  if (hours === NO_RECENT_LIMIT) return NO_RECENT_LIMIT;
+  return Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, Math.round(hours ?? DEFAULT_RECENT_HOURS)));
+}
+
+/**
+ * Whether a project key (the one the desktop sidebar uses) names a workspace's project. Local keys
+ * carry the host and the lowercased path, remote ones the project id.
+ */
+export function keyMatches(key: string, w: { projectRootPath: string; projectId: string }): boolean {
+  if (key.startsWith("remote:")) return key === `remote:${w.projectId.replace(/^remote:/, "")}`;
+  const path = key.replace(/^host:[^:]+:/, "");
+  return path === w.projectRootPath.toLowerCase() || path === w.projectId.toLowerCase();
+}
+
+/** One press of the stepper. Below 1 h comes "no limit"; stepping up from there gives 1 h again. */
+export function stepRecentHours(hours: number, delta: 1 | -1): number {
+  if (hours === NO_RECENT_LIMIT) return delta > 0 ? MIN_RECENT_HOURS : NO_RECENT_LIMIT;
+  if (hours + delta < MIN_RECENT_HOURS) return NO_RECENT_LIMIT;
+  return normalizeRecentHours(hours + delta);
+}
 
 const KEY_PREFIX = "paseo-clusters:v1";
 /** Which daemon the sidebar is showing, so it survives a reload. */

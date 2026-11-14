@@ -1,5 +1,6 @@
 import type { PluginClientContext, PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { ClustersSurface } from "./client/clusters";
+import { ClustersSidebarView } from "./client/sidebar-view";
 import { t } from "./client/web";
 import { type AgentLike, toMs, usedAt } from "./shared/activity";
 import { readState, writeState } from "./shared/storage";
@@ -68,6 +69,19 @@ export default function contribute(client: PluginClientContext) {
           openSurface("clusters");
         },
       }),
+      // Paseo 0.16+: a sidebar that filters by cluster on every client, the native apps included.
+      ...(typeof client.addSidebarView === "function"
+        ? [
+            client.addSidebarView({
+              id: "clusters",
+              title: t().sidebarViewTitle,
+              description: t().sidebarViewDescription,
+              Component: (props) => (
+                <ClustersSidebarView {...props} daemon={daemon} onManage={() => client.openSurface("clusters")} />
+              ),
+            }),
+          ]
+        : []),
     ];
     return () => {
       for (const remove of removers) void remove();

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Recents can have no time limit: step below 1 h in the Clusters screen to pick "No limit"
+  (stored as -1). Every project then stays in Recents until you hide it.
+- An "Active cluster" picker at the top of the Clusters screen, shown on every client, sets the
+  same selection as the sidebar circles (Recents, a cluster, or All).
+- A "Clusters" sidebar view (Paseo 0.16 or newer, Settings > Sidebar > Sidebar view): the
+  cluster picker on top and only the selected cluster's workspaces below, on every client
+  including the phone and tablet apps, where the circles cannot filter the sidebar.
+- Holding − or + in the Clusters screen keeps stepping the Recents window until released.
+- The version reported to clients matches the package again (0.5.8 still reported 0.5.7).
+
 ## 0.5.8
 
 - The docs note that the circles need the "New workspace" button visible in the sidebar (#1).

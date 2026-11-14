@@ -19,7 +19,7 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
   list down to its projects. The row is anchored to the "New workspace" button, so it only shows
   while that button is visible in the sidebar; if you hid it, turn it back on to see the circles.
 - **Recents.** Projects used recently (24 hours by default, adjustable from 1 to 48 in the Clusters
-  screen). A project enters at the top once, then keeps its place until you drag it elsewhere, and
+  screen, or "No limit" below 1 to keep every project there until you hide it). A project enters at the top once, then keeps its place until you drag it elsewhere, and
   drops out once that time passes without use — use being your last message to one of its
   sessions. A project on the list keeps all of its sessions.
 - **Hide from Recents.** Hover a project in Recents and press the crossed-out eye next to "+" and
@@ -29,6 +29,9 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
   and you have not opened it yet.
 - **Drag and drop.** Drag a project onto a circle to move it into that cluster, or up and down to
   order it inside the cluster. The circles reorder by dragging too.
+- **Active cluster picker.** The Clusters screen has the same choices as the circles (Recents, each
+  cluster, All) and filters the sidebar the same way, for phone and tablet browsers where the circles
+  do not show.
 - **Management screen.** Create clusters with a name, an icon (letter, emoji or symbol) and any hex
   color; move projects between clusters; search; and an All tab listing unassigned projects.
 - **One project, one cluster.** New projects join whichever cluster is selected.
@@ -47,7 +50,8 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 
 - Paseo **0.8.0** or newer.
 - **Desktop only.** The circles are injected into the app's web UI, so they do not appear on iOS or
-  Android. On mobile the Clusters screen still lists your clusters and their workspaces.
+  Android. On mobile the Clusters screen still lists your clusters and their workspaces. In a
+  narrow browser use the Active cluster picker in the Clusters screen instead of the circles.
 - The plugin relies on the `data-testid` attributes of Paseo's sidebar. They are stable, but a Paseo
   update may change them; open an issue if something stops showing up.
 - The circles need the "New workspace" button in the sidebar. With it hidden, the bar does not

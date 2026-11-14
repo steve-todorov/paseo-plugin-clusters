@@ -1,17 +1,18 @@
 import { type PluginHostSummary, type PluginSurfaceProps, useHosts, usePaseo } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Image, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import {
+  ALL_ID,
   COLORS,
   type Daemon,
   type MergedCluster,
   type SidebarProject,
   clusterIcon,
   createCluster,
-  DEFAULT_RECENT_HOURS,
   focusDaemon,
   getActive,
+  setActive,
   getState,
   nodeLabelOf,
   nodeLabelOfKey,
@@ -25,7 +26,9 @@ import {
   registerHost,
   setState,
   MAX_RECENT_HOURS,
-  MIN_RECENT_HOURS,
+  NO_RECENT_LIMIT,
+  normalizeRecentHours,
+  stepRecentHours,
   subscribe,
   t,
 } from "./web";
@@ -37,6 +40,8 @@ const NO_HOSTS: readonly PluginHostSummary[] = [];
 const useHostList: () => readonly PluginHostSummary[] = typeof useHosts === "function" ? useHosts : () => NO_HOSTS;
 const UPDATE_COMMAND = "paseo plugin update paseo-clusters --yes";
 const OUTDATED = "#ef4444";
+/** How often a held − or + steps the Recents window. */
+const REPEAT_MS = 120;
 
 /** Orders versions like 0.13.0-beta.1: numbers first, and a pre-release before its release. */
 function compareVersions(a: string, b: string): number {
@@ -78,6 +83,8 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
   const state = useSyncExternalStore(subscribe, snapshot);
   const clusters = useSyncExternalStore(subscribe, mergedClusters);
   const connected = useSyncExternalStore(subscribe, nodes);
+  // The circle selected in the sidebar bar; the picker below sets the same one.
+  const active = useSyncExternalStore(subscribe, getActive);
   const hosts = useHostList();
   // This screen is the one place the app names the host its daemon serves.
   useEffect(() => registerHost(daemon, host.id), [daemon, host.id]);
@@ -230,16 +237,41 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     editOwn(null);
   };
 
-  const hours = Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, Math.round(state.recentHours ?? DEFAULT_RECENT_HOURS)));
-  const setHours = (next: number) =>
-    setState(daemon, { ...state, recentHours: Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, next)) });
+  const hours = normalizeRecentHours(state.recentHours);
+  /** Steps from the stored value, not this render's, so a held button keeps counting. False at an end. */
+  const stepHours = (delta: 1 | -1): boolean => {
+    const now = getState(daemon);
+    const from = normalizeRecentHours(now.recentHours);
+    const next = stepRecentHours(from, delta);
+    if (next === from) return false;
+    setState(daemon, { ...now, recentHours: next });
+    return true;
+  };
+  const repeat = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopRepeat = useCallback(() => {
+    if (repeat.current) clearInterval(repeat.current);
+    repeat.current = null;
+  }, []);
+  useEffect(() => stopRepeat, [stopRepeat]);
+  // A long press keeps stepping until released; at an end the button is disabled and may never see
+  // the release, so the repeat also stops itself there.
+  const startRepeat = (delta: 1 | -1) => {
+    stopRepeat();
+    if (!stepHours(delta)) return;
+    repeat.current = setInterval(() => {
+      if (!stepHours(delta)) stopRepeat();
+    }, REPEAT_MS);
+  };
 
-  const stepButton = (label: string, a11y: string, disabled: boolean, onPress: () => void) => (
+  const stepButton = (label: string, a11y: string, disabled: boolean, delta: 1 | -1) => (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={a11y}
       disabled={disabled}
-      onPress={onPress}
+      onPress={() => stepHours(delta)}
+      onLongPress={() => startRepeat(delta)}
+      onPressOut={stopRepeat}
+      delayLongPress={400}
       style={{
         width: 36,
         height: 36,
@@ -252,7 +284,9 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
         opacity: disabled ? 0.4 : 1,
       }}
     >
-      <Text style={{ color: c.foreground, fontSize: 18 }}>{label}</Text>
+      <Text selectable={false} style={{ color: c.foreground, fontSize: 18 }}>
+        {label}
+      </Text>
     </Pressable>
   );
 
@@ -313,6 +347,51 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
           </Text>
         ) : null}
         <Text style={styles.muted}>{count}</Text>
+      </Pressable>
+    );
+  };
+
+  /** One choice of the sidebar filter: Recents (null), a cluster, or All. */
+  const filterButton = (id: string | null, label: string, cluster: MergedCluster | null) => {
+    const selected = active === id;
+    return (
+      <Pressable
+        key={id ?? "recent"}
+        accessibilityRole="radio"
+        accessibilityState={{ selected }}
+        onPress={() => setActive(id)}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingVertical: 6,
+          paddingHorizontal: 10,
+          borderRadius: 16,
+          borderWidth: 1,
+          borderColor: selected ? (cluster?.color ?? c.foreground) : c.border,
+          backgroundColor: selected ? c.surface2 : "transparent",
+        }}
+      >
+        {cluster ? (
+          <View
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: 10,
+              backgroundColor: cluster.color,
+              alignItems: "center",
+              justifyContent: "center",
+              overflow: "hidden",
+            }}
+          >
+            {cluster.image ? (
+              <Image source={{ uri: cluster.image }} style={{ width: 20, height: 20 }} accessibilityIgnoresInvertColors />
+            ) : (
+              <Text style={{ color: "#ffffff", fontSize: 11, fontWeight: "700" }}>{clusterIcon(cluster)}</Text>
+            )}
+          </View>
+        ) : null}
+        <Text style={styles.text}>{label}</Text>
       </Pressable>
     );
   };
@@ -452,6 +531,16 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
 {isWeb ? strings.intro : strings.mobileNotice}
       </Text>
 
+      {/* The same choice as the sidebar circles, for clients where the circles do not show. */}
+      <View style={{ gap: 6 }}>
+        <Text style={styles.section}>{strings.activeCluster}</Text>
+        <View style={styles.rowWrap} accessibilityRole="radiogroup">
+          {filterButton(null, strings.recentsLabel, null)}
+          {clusters.map((cl) => filterButton(cl.id, cl.name, cl))}
+          {filterButton(ALL_ID, strings.allLabel, null)}
+        </View>
+      </View>
+
       <View style={{ alignSelf: "flex-start", borderWidth: 1, borderColor: c.border, borderRadius: 6, paddingVertical: 4 }}>
         {[{ id: "head", head: true }, ...nodeRows.map((r) => ({ ...r, head: false }))].map((r) => {
           const row = r.head ? null : (r as (typeof nodeRows)[number]);
@@ -523,9 +612,11 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
       <View style={{ gap: 6 }}>
         <Text style={styles.section}>{strings.recentWindow}</Text>
         <View style={styles.rowWrap}>
-          {stepButton("−", strings.decrease, hours <= MIN_RECENT_HOURS, () => setHours(hours - 1))}
-          <Text style={[styles.title, { minWidth: 64, textAlign: "center" }]}>{hours} h</Text>
-          {stepButton("+", strings.increase, hours >= MAX_RECENT_HOURS, () => setHours(hours + 1))}
+          {stepButton("−", strings.decrease, hours === NO_RECENT_LIMIT, -1)}
+          <Text style={[styles.title, { minWidth: 64, textAlign: "center" }]}>
+            {hours === NO_RECENT_LIMIT ? strings.noLimit : `${hours} h`}
+          </Text>
+          {stepButton("+", strings.increase, hours >= MAX_RECENT_HOURS, 1)}
           <Text style={styles.muted}>{strings.recentWindowHint(hours)}</Text>
         </View>
       </View>

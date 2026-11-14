@@ -2,9 +2,17 @@ export type Language = "en" | "es";
 
 const en = {
   recentsLabel: "Recents",
-  recentsTooltip: (hours: number) => `Used in the last ${hours} h`,
+  /** `hours` is -1 when Recents has no time limit. */
+  recentsTooltip: (hours: number) => (hours < 0 ? "Recents · no time limit" : `Used in the last ${hours} h`),
   recentWindow: "TIME IN RECENTS",
-  recentWindowHint: (hours: number) => `Projects leave Recents after ${hours} h without use.`,
+  recentWindowHint: (hours: number) =>
+    hours < 0 ? "Every project stays in Recents until you hide it." : `Projects leave Recents after ${hours} h without use.`,
+  noLimit: "No limit",
+  activeCluster: "ACTIVE CLUSTER",
+  sidebarViewTitle: "Clusters",
+  sidebarViewDescription: "Workspaces of the selected cluster, with the cluster picker on top.",
+  noWorkspaces: "No workspaces here.",
+  newWorkspace: "New workspace",
   hideFromRecents: "Hide from Recents until used again",
   decrease: "Decrease",
   increase: "Increase",
@@ -60,9 +68,16 @@ const en = {
 
 const es: typeof en = {
   recentsLabel: "Recientes",
-  recentsTooltip: (hours) => `Usados en las últimas ${hours} h`,
+  recentsTooltip: (hours) => (hours < 0 ? "Recientes · sin límite de tiempo" : `Usados en las últimas ${hours} h`),
   recentWindow: "TIEMPO EN RECIENTES",
-  recentWindowHint: (hours) => `Los proyectos salen de Recientes tras ${hours} h sin uso.`,
+  recentWindowHint: (hours) =>
+    hours < 0 ? "Todos los proyectos siguen en Recientes hasta que los ocultes." : `Los proyectos salen de Recientes tras ${hours} h sin uso.`,
+  noLimit: "Sin límite",
+  activeCluster: "CLUSTER ACTIVO",
+  sidebarViewTitle: "Clusters",
+  sidebarViewDescription: "Workspaces del cluster seleccionado, con el selector de clusters arriba.",
+  noWorkspaces: "No hay workspaces aquí.",
+  newWorkspace: "Nuevo workspace",
   hideFromRecents: "Ocultar de Recientes hasta que se vuelva a usar",
   decrease: "Menos",
   increase: "Más",
