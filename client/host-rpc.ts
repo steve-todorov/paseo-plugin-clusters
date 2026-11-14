@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import type { ProjectIconData } from "../shared/daemon-data";
 import type { WorkspaceLabelDefinition } from "../shared/sidebar/labels";
 
@@ -55,4 +55,15 @@ function subscribe(listener: () => void): () => void {
 /** The reads of a host's daemon, or null while no copy on that host offers them. */
 export function useHostEndpoint(hostId: string): HostEndpoint | null {
   return useSyncExternalStore(subscribe, () => registry().endpoints.get(hostId) ?? null);
+}
+
+/** The reads of a host's daemon right now, outside React. */
+export function getHostEndpoint(hostId: string): HostEndpoint | null {
+  return registry().endpoints.get(hostId) ?? null;
+}
+
+/** The hosts whose copy offers its reads, sorted. A string, so the snapshot compares by value. */
+export function useOfferedHostIds(): readonly string[] {
+  const ids = useSyncExternalStore(subscribe, () => [...registry().endpoints.keys()].sort().join("\n"));
+  return useMemo(() => (ids ? ids.split("\n") : []), [ids]);
 }

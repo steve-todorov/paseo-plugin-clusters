@@ -7,20 +7,17 @@
  * shows 20 rows until expanded; the open workspace, when it falls past them, comes first.
  */
 
+import { PINNED_GROUP_LIMIT, type SidebarGroupVisibility, selectSidebarGroupVisibility } from "./group-visibility.ts";
+
 /** Rows Pinned shows before "Show more". */
-export const PINNED_LIMIT = 20;
+export const PINNED_LIMIT = PINNED_GROUP_LIMIT;
 
 /** Most recently pinned first. `pinnedAt` is an ISO time, so text order is time order. */
 export function byPinnedAtDesc(a: { pinnedAt: string | null }, b: { pinnedAt: string | null }): number {
   return (b.pinnedAt ?? "").localeCompare(a.pinnedAt ?? "");
 }
 
-export interface PinnedVisibility<T> {
-  /** The open workspace when the limit would hide it; drawn before `visibleItems`, never in them. */
-  leadingItem: T | null;
-  visibleItems: T[];
-  canToggle: boolean;
-}
+export type PinnedVisibility<T> = SidebarGroupVisibility<T>;
 
 /** Which pinned rows show, as `selectSidebarGroupVisibility` with the pinned policy decides. */
 export function selectPinnedVisibility<T>(input: {
@@ -28,15 +25,5 @@ export function selectPinnedVisibility<T>(input: {
   expanded: boolean;
   isOpen: (item: T) => boolean;
 }): PinnedVisibility<T> {
-  const { items, expanded, isOpen } = input;
-  const baseline: T[] = [];
-  let leadingItem: T | null = null;
-  let canToggle = false;
-  items.forEach((item, index) => {
-    if (index < PINNED_LIMIT) baseline.push(item);
-    else if (leadingItem === null && isOpen(item)) leadingItem = item;
-    else canToggle = true;
-  });
-  if (expanded || !canToggle) return { leadingItem: null, visibleItems: items.slice(), canToggle };
-  return { leadingItem, visibleItems: baseline, canToggle };
+  return selectSidebarGroupVisibility({ ...input, policy: { kind: "pinned" } });
 }

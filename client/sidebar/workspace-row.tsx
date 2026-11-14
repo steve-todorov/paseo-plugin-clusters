@@ -36,6 +36,7 @@ export function WorkspaceRow({
   navigation,
   hostBadge,
   hoisted = false,
+  indented = false,
 }: {
   reference: WorkspaceRef;
   theme: Theme;
@@ -45,6 +46,8 @@ export function WorkspaceRow({
   hostBadge: HostBadgeModel | null;
   /** A row no project row contains (a pinned one): its project's icon leads and the meta row names it. */
   hoisted?: boolean;
+  /** Under a status header, which the row steps in from (`rowIndented`); elsewhere it sits flush. */
+  indented?: boolean;
 }) {
   const w = useWorkspace(reference, (item) => ({
     name: item.name,
@@ -82,7 +85,7 @@ export function WorkspaceRow({
         minHeight: ROW_HEIGHT,
         marginBottom: 2,
         paddingVertical: 8,
-        paddingLeft: 8,
+        paddingLeft: indented ? 16 : 8,
         paddingRight: 12,
         borderRadius: 8,
         justifyContent: "center",
