@@ -3,7 +3,9 @@ import { ClustersSurface } from "./client/clusters";
 import { ClustersSidebarView } from "./client/sidebar-view";
 import { t } from "./client/web";
 import { type AgentLike, toMs, usedAt } from "./shared/activity";
+import { readProjectIcon, readWorkspaceLabels } from "./shared/daemon-data";
 import { readState, writeState } from "./shared/storage";
+import { type HostEndpoint, offerHostEndpoint } from "./client/host-rpc";
 import { type Daemon, type WorkspaceStatus, claimScreen, registerProjectHistory, registerProjectRoots, connectDaemon, disconnectDaemon, isWeb, registerProjects, removeWorkspace, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
 
 /** Fallback resync; live updates arrive through the subscriptions below. */
@@ -43,8 +45,19 @@ function sidebarKey(project: { projectKey?: string | null; projectId: string }):
 export default function contribute(client: PluginClientContext) {
   // One copy of this plugin runs per connected daemon. This one speaks only for its own daemon:
   // its clusters are read from and written to that daemon, never to any other.
+  // The sidebar view reaches this daemon's icons and labels through this copy, once the daemon
+  // has said which host it is.
+  const endpoint: HostEndpoint = {
+    readProjectIcon: (projectId) => client.rpc(readProjectIcon, { projectId }),
+    readWorkspaceLabels: async () => (await client.rpc(readWorkspaceLabels, {})).labels,
+  };
+  let withdrawEndpoint: (() => void) | null = null;
   const daemon = connectDaemon({
-    read: () => client.rpc(readState, {}),
+    read: async () => {
+      const result = await client.rpc(readState, {});
+      if (result.hostId && !withdrawEndpoint) withdrawEndpoint = offerHostEndpoint(result.hostId, endpoint);
+      return result;
+    },
     write: async (shared) => {
       await client.rpc(writeState, { state: shared });
     },
@@ -91,6 +104,7 @@ export default function contribute(client: PluginClientContext) {
   const stopSidebar = startSidebarClusters(daemon, () => client.openSurface("clusters"));
   if (!isWeb) {
     return () => {
+      withdrawEndpoint?.();
       releaseScreen();
       disconnectDaemon(daemon);
       stopSidebar();
@@ -188,6 +202,7 @@ export default function contribute(client: PluginClientContext) {
   }, RESYNC_MS);
 
   return () => {
+    withdrawEndpoint?.();
     released = true;
     void release?.();
     clearInterval(timer);

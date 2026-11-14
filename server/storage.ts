@@ -2,14 +2,15 @@ import type { RpcInput } from "@getpaseo/plugin";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { homedir, hostname } from "node:os";
+import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { writeState } from "../shared/storage";
 import { stateSchema } from "../shared/storage";
 import { PLUGIN_VERSION } from "../shared/version";
+import { PASEO_HOME } from "./paseo-home";
 
 /** Shared by every client of this daemon, so clusters follow the machine, not the app. */
-const HOME = process.env.PASEO_HOME ?? join(homedir(), ".paseo");
+const HOME = PASEO_HOME;
 const FILE = join(HOME, "plugins", "paseo-clusters.json");
 
 /**

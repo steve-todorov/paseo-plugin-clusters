@@ -9,6 +9,7 @@
     "client/",
     "!client/*.test.ts",
     "server/",
+    "!server/*.test.ts",
     "shared/",
     "!shared/*.test.ts",
     "!shared/sidebar/*.test.ts",
@@ -19,7 +20,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test client/*.test.ts shared/*.test.ts shared/sidebar/*.test.ts"
+    "test": "node --test client/*.test.ts shared/*.test.ts shared/sidebar/*.test.ts server/*.test.ts"
   },
   "devDependencies": {
     "@getpaseo/plugin": "^0.16.0-beta.2",

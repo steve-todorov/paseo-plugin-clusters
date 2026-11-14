@@ -4,7 +4,8 @@
  *
  * A workspace stores label names; the colour lives in its host's label catalog. The app reads that
  * catalog through the daemon client's `observeWorkspaceLabels`, which the plugin's PaseoApi does
- * not expose, so without a catalog each name gets the identity colour its key hashes to.
+ * not expose; the plugin reads it through its own RPC on that host. A host that cannot answer (an
+ * older copy of the plugin) has no catalog, and each name gets the identity colour its key hashes to.
  */
 import { IDENTITY_COLOR_NAMES, type IdentityColorName, deriveIdentityColorName } from "./identity-colors.ts";
 
