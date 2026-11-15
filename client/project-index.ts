@@ -1,6 +1,7 @@
 import { getPaseoClient, useHosts } from "@getpaseo/plugin/client";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { type ProjectIndex, type WorkspaceKeyFields, createKeyMatcher, indexHostProjects } from "../shared/project-keys";
+import { type WorkspaceKeyFields, createKeyMatcher, indexHostProjects } from "../shared/project-keys";
+import type { NamedProjectListing } from "../shared/project-list";
 
 /*
  * Cluster keys are the sidebar's project keys; Paseo 0.16 workspace snapshots carry only the
@@ -10,57 +11,63 @@ import { type ProjectIndex, type WorkspaceKeyFields, createKeyMatcher, indexHost
 
 const RESYNC_MS = 60_000;
 
-class ProjectIndexStore {
-  private readonly byHost = new Map<string, Map<string, Set<string>>>();
+/** Per host, the project list as last read. */
+export type HostProjectLists = ReadonlyMap<string, readonly NamedProjectListing[]>;
+
+class ProjectListStore {
+  private byHost: Map<string, readonly NamedProjectListing[]> = new Map();
   private readonly listeners = new Set<() => void>();
-  private version = 0;
 
-  getVersion = (): number => this.version;
-
-  get index(): ProjectIndex {
-    return this.byHost;
-  }
+  /** A new map on each change, so it can be a snapshot. */
+  getLists = (): HostProjectLists => this.byHost;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
 
-  replaceHost(hostId: string, next: Map<string, Set<string>>): void {
+  replaceHost(hostId: string, next: readonly NamedProjectListing[]): void {
     const current = this.byHost.get(hostId);
-    if (current && sameIndex(current, next)) return;
-    this.byHost.set(hostId, next);
+    if (current && sameLists(current, next)) return;
+    this.byHost = new Map(this.byHost).set(hostId, next);
     this.emit();
   }
 
   dropHost(hostId: string): void {
-    if (this.byHost.delete(hostId)) this.emit();
+    if (!this.byHost.has(hostId)) return;
+    const next = new Map(this.byHost);
+    next.delete(hostId);
+    this.byHost = next;
+    this.emit();
   }
 
   private emit(): void {
-    this.version += 1;
     for (const listener of this.listeners) listener();
   }
 }
 
-function sameIndex(a: Map<string, Set<string>>, b: Map<string, Set<string>>): boolean {
-  if (a.size !== b.size) return false;
-  for (const [key, ids] of a) {
-    const other = b.get(key);
-    if (!other || other.size !== ids.size) return false;
-    for (const id of ids) if (!other.has(id)) return false;
-  }
-  return true;
+function listingOf(project: NamedProjectListing): NamedProjectListing {
+  return {
+    projectId: project.projectId,
+    projectKey: project.projectKey ?? null,
+    projectRootPath: project.projectRootPath ?? null,
+    projectDisplayName: project.projectDisplayName ?? null,
+    projectCustomName: project.projectCustomName ?? null,
+  };
+}
+
+function sameLists(a: readonly NamedProjectListing[], b: readonly NamedProjectListing[]): boolean {
+  return a.length === b.length && JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** Follows one host's project list into the store until the returned stop is called. */
-function followHost(store: ProjectIndexStore, hostId: string): () => void {
+function followHost(store: ProjectListStore, hostId: string): () => void {
   let stopped = false;
   const api = getPaseoClient(hostId);
   const resync = async () => {
     try {
       const { projects } = await api.projects.list();
-      if (!stopped) store.replaceHost(hostId, indexHostProjects(hostId, projects));
+      if (!stopped) store.replaceHost(hostId, projects.map(listingOf));
     } catch (error) {
       console.warn("[paseo-clusters] Could not read the project list", hostId, error);
     }
@@ -80,18 +87,24 @@ function followHost(store: ProjectIndexStore, hostId: string): () => void {
   };
 }
 
+/** Hosts the app lists; Paseo before 0.9 has no host list, and then none are followed here. */
+const useHostList: typeof useHosts = typeof useHosts === "function" ? useHosts : () => [];
+const canFollow = typeof getPaseoClient === "function";
+
 /**
- * The matcher from cluster keys to workspaces, over the project lists of every online host. A new
- * function each time a list changes, so the lists filtered with it are worked out again.
+ * The project list of every online host, kept current. An offline host keeps its last list, as its
+ * rows stay; a removed host's goes. Empty where the app cannot reach other hosts' clients.
  */
-export function useClusterKeyMatcher(): (key: string, w: WorkspaceKeyFields) => boolean {
-  const [store] = useState(() => new ProjectIndexStore());
-  const hosts = useHosts();
-  const online = hosts
-    .filter((host) => host.status === "online")
-    .map((host) => host.serverId)
-    .sort()
-    .join("\n");
+export function useHostProjectLists(): HostProjectLists {
+  const [store] = useState(() => new ProjectListStore());
+  const hosts = useHostList();
+  const online = canFollow
+    ? hosts
+        .filter((host) => host.status === "online")
+        .map((host) => host.serverId)
+        .sort()
+        .join("\n")
+    : "";
   const known = hosts
     .map((host) => host.serverId)
     .sort()
@@ -108,10 +121,9 @@ export function useClusterKeyMatcher(): (key: string, w: WorkspaceKeyFields) => 
     for (const hostId of wanted) if (!follows.current.has(hostId)) follows.current.set(hostId, followHost(store, hostId));
   }, [store, online]);
 
-  // An offline host keeps its last list, as its rows stay; a removed host's goes.
   useEffect(() => {
     const configured = new Set(known ? known.split("\n") : []);
-    for (const hostId of [...(store.index as Map<string, unknown>).keys()]) if (!configured.has(hostId)) store.dropHost(hostId);
+    for (const hostId of [...store.getLists().keys()]) if (!configured.has(hostId)) store.dropHost(hostId);
   }, [store, known]);
 
   useEffect(() => {
@@ -122,7 +134,19 @@ export function useClusterKeyMatcher(): (key: string, w: WorkspaceKeyFields) => 
     };
   }, []);
 
-  const version = useSyncExternalStore(store.subscribe, store.getVersion);
-  // The version is what changes the index.
-  return useMemo(() => createKeyMatcher(store.index), [store, version]);
+  return useSyncExternalStore(store.subscribe, store.getLists);
+}
+
+/**
+ * The matcher from cluster keys to workspaces, over the project lists of every online host. A new
+ * function each time a list changes, so the lists filtered with it are worked out again.
+ */
+export function useClusterKeyMatcher(): (key: string, w: WorkspaceKeyFields) => boolean {
+  const lists = useHostProjectLists();
+  return useMemo(() => keyMatcherOf(lists), [lists]);
+}
+
+/** The matcher from cluster keys to workspaces over the given host project lists. */
+export function keyMatcherOf(lists: HostProjectLists): (key: string, w: WorkspaceKeyFields) => boolean {
+  return createKeyMatcher(new Map([...lists].map(([hostId, projects]) => [hostId, indexHostProjects(hostId, projects)])));
 }

@@ -7,7 +7,6 @@ import {
   COLORS,
   type Daemon,
   type MergedCluster,
-  type SidebarProject,
   clusterIcon,
   createCluster,
   focusDaemon,
@@ -19,7 +18,6 @@ import {
   setHostLabels,
   isWeb,
   hasLiveWorkspaces,
-  listSidebarProjects,
   mergedClusters,
   moveProjectToCluster,
   nodes,
@@ -33,7 +31,8 @@ import {
   t,
 } from "./web";
 import { ClusterForm, type ClusterDraft } from "./cluster-form";
-import { sidebarKeyOf } from "../shared/project-keys";
+import { type ScreenProject, listScreenProjects, matchesProjectQuery } from "../shared/project-list";
+import { keyMatcherOf, useHostProjectLists } from "./project-index";
 
 const ALL_TAB = "__all__";
 const NO_HOSTS: readonly PluginHostSummary[] = [];
@@ -89,24 +88,25 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
   const [form, setForm] = useState<"create" | "edit" | null>(null);
   const [query, setQuery] = useState("");
   const paseo = usePaseo();
-  const [sidebarProjects, setSidebarProjects] = useState(listSidebarProjects);
 
-  // The desktop reads the live sidebar; other clients ask the daemon for the project list.
+  // Every connected host's project list, on every client and whichever sidebar view is shown: the
+  // desktop sidebar lists only what Paseo's own list shows, and nothing under the Clusters view.
+  const hostLists = useHostProjectLists();
+  // This screen's own host, read directly too, for apps that cannot reach the other hosts' lists.
   const projectsQuery = useQuery({
     queryKey: ["paseo-clusters", "projects", host.id],
-    queryFn: async () => {
-      const { projects: entries } = await paseo.projects.list();
-      return entries.map((project) => ({
-        key: sidebarKeyOf(host.id, project),
-        label: project.projectCustomName || project.projectDisplayName,
-      }));
-    },
-    enabled: !isWeb,
+    queryFn: async () => (await paseo.projects.list()).projects,
+    refetchInterval: 60_000,
   });
+  const lists = useMemo(() => {
+    const next = new Map(hostLists);
+    if (!next.has(host.id) && projectsQuery.data) next.set(host.id, projectsQuery.data);
+    return next;
+  }, [hostLists, host.id, projectsQuery.data]);
+  const allProjects = useMemo(() => listScreenProjects(lists), [lists]);
+  const keyMatches = useMemo(() => keyMatcherOf(lists), [lists]);
   // Projects whose workspaces are all archived stay in Paseo's list; they are left out here.
-  const projects: SidebarProject[] = (isWeb ? sidebarProjects : (projectsQuery.data ?? [])).filter(
-    (p) => hasLiveWorkspaces(p.key) !== false,
-  );
+  const projects: ScreenProject[] = allProjects.filter((p) => hasLiveWorkspaces(p.key) !== false);
 
   // Mobile has no sidebar to filter, so the cluster tab lists its workspaces instead.
   const workspacesQuery = useQuery({
@@ -194,10 +194,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     tabs.find((tb) => tb.merged.id === tab) ??
     null;
   const current = currentTab?.own ?? null;
-  const needle = query.trim().toLowerCase();
-  const matches = (p: SidebarProject) =>
-    !needle || p.label.toLowerCase().includes(needle) || p.key.toLowerCase().includes(needle);
-  const visible = projects.filter(matches);
+  const visible = projects.filter((p) => matchesProjectQuery(p, query));
   const inCurrent = current ? visible.filter((p) => current.projects.includes(p.key)) : [];
   const unassigned = visible.filter((p) => !clusterOf.has(p.key));
   const assigned = visible.filter((p) => clusterOf.has(p.key));
@@ -420,11 +417,10 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     </Pressable>
   );
 
-  const workspacesOf = (p: SidebarProject) => {
+  const workspacesOf = (p: ScreenProject) => {
     if (isWeb) return [];
-    const path = p.key.replace(/^host:[^:]+:/, "");
     return (workspacesQuery.data ?? []).filter(
-      (w) => !w.archivingAt && w.projectRootPath.toLowerCase() === path,
+      (w) => !w.archivingAt && keyMatches(p.key, { hostId: host.id, projectId: w.projectId, projectRootPath: w.projectRootPath }),
     );
   };
 
@@ -453,7 +449,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     </Pressable>
   );
 
-  const projectRow = (p: SidebarProject) => {
+  const projectRow = (p: ScreenProject) => {
     const owner = clusterOf.get(p.key) ?? null;
     const workspaces = current ? workspacesOf(p) : [];
     return (
@@ -647,7 +643,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
         <Pressable
           accessibilityRole="button"
           style={styles.ghost}
-          onPress={() => (isWeb ? setSidebarProjects(listSidebarProjects()) : void projectsQuery.refetch())}
+          onPress={() => void projectsQuery.refetch()}
         >
           <Text style={styles.text}>{strings.refresh}</Text>
         </Pressable>
@@ -671,7 +667,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
           </View>
           {inCurrent.length === 0 ? (
             <Text style={styles.muted}>
-              {needle ? strings.noMatches : strings.emptyCluster}
+              {query.trim() ? strings.noMatches : strings.emptyCluster}
             </Text>
           ) : null}
           {inCurrent.map(projectRow)}
@@ -679,7 +675,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
       ) : tab === UNASSIGNED_TAB ? (
         <>
           {unassigned.length === 0 ? (
-            <Text style={styles.muted}>{needle ? strings.noMatches : strings.allClustered}</Text>
+            <Text style={styles.muted}>{query.trim() ? strings.noMatches : strings.allClustered}</Text>
           ) : null}
           {unassigned.map(projectRow)}
         </>

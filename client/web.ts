@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 import { inRecents } from "../shared/activity";
 import { LANGUAGES, type Language, type Strings } from "../shared/i18n";
 import { createPresence } from "../shared/presence";
+import { projectLiveness } from "../shared/project-list";
 import { MAX_IMAGE_LENGTH } from "../shared/storage";
 import * as store from "./store";
 import type { Cluster, ClusterState, Daemon, DaemonSync, MergedCluster } from "./store";
@@ -227,20 +228,6 @@ export function subscribe(listener: () => void): () => void {
 /** The state of the daemon the sidebar is showing. Only the owning copy reaches these. */
 function view(): ClusterState {
   return store.getState(store.currentDaemon());
-}
-
-export interface SidebarProject {
-  key: string;
-  label: string;
-}
-
-export function listSidebarProjects(): SidebarProject[] {
-  if (!isWeb) return [];
-  return Array.from(document.querySelectorAll(`[data-testid^="${ROW_PREFIX}"]`)).map((row) => {
-    const key = (row.getAttribute("data-testid") ?? "").slice(ROW_PREFIX.length);
-    const fromKey = key.split(/[\\/]/).pop() ?? key;
-    return { key, label: row.getAttribute("aria-label") || fromKey };
-  });
 }
 
 function projectGroups(): { group: El; key: string }[] {
@@ -738,12 +725,17 @@ interface RingState {
 }
 
 /** Root paths of projects whose sidebar key carries none (remote keys). */
-const rootByKey = new Map<string, string>();
+const rootByKey = new Map<string, Set<string>>();
 
 export function registerProjectRoots(roots: readonly [string, string][]): void {
   const other = otherOwner();
   if (other) return other.registerProjectRoots(roots);
-  for (const [key, path] of roots) rootByKey.set(key, path);
+  // Several projects can share a key (a worktree added as a project of its own): every root counts.
+  for (const [key, path] of roots) {
+    const known = rootByKey.get(key) ?? new Set<string>();
+    known.add(path);
+    rootByKey.set(key, known);
+  }
   scheduleFilter();
 }
 
@@ -771,19 +763,26 @@ export function registerProjectHistory(paths: readonly string[]): void {
 export function hasLiveWorkspaces(key: string): boolean | null {
   const other = otherOwner();
   if (other) return other.hasLiveWorkspaces(key);
-  if (activity.size === 0 || !historyLoaded) return null;
-  for (const id of workspacesOfProject(key)) if (activity.has(id)) return true;
-  const root = projectPathOfKey(key) || rootByKey.get(key);
-  if (!root) return true;
-  const base = normalisePath(root);
-  for (const path of historyPaths) if (path === base || path.startsWith(`${base}/`)) return false;
-  return true;
+  const roots = rootsOfKey(key);
+  return projectLiveness({
+    loaded: activity.size > 0 && historyLoaded,
+    workspaceLive: [...(knownWorkspaces.get(key) ?? [])].some((id) => activity.has(id)),
+    liveRoots: [...activity.values()].map((info) => info.projectPath),
+    roots,
+    history: historyPaths,
+  });
+}
+
+/** The project roots behind a key: the path a local key carries, else those of its projects. */
+function rootsOfKey(key: string): string[] {
+  const path = projectPathOfKey(key);
+  return path ? [path] : [...(rootByKey.get(key) ?? [])];
 }
 
 function workspacesOfProject(key: string): Set<string> {
   const ids = new Set(knownWorkspaces.get(key) ?? []);
-  const path = projectPathOfKey(key) || rootByKey.get(key);
-  if (path) for (const [id, info] of activity) if (info.projectPath === path) ids.add(id);
+  const roots = rootsOfKey(key);
+  if (roots.length) for (const [id, info] of activity) if (roots.includes(info.projectPath)) ids.add(id);
   return ids;
 }
 
