@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 import { inRecents } from "../shared/activity";
 import { LANGUAGES, type Language, type Strings } from "../shared/i18n";
 import { createPresence } from "../shared/presence";
+import { type ProjectListing, canonicalClusterKey } from "../shared/project-keys";
 import { projectLiveness } from "../shared/project-list";
 import { MAX_IMAGE_LENGTH } from "../shared/storage";
 import * as store from "./store";
@@ -197,6 +198,7 @@ export function connectDaemon(sync: DaemonSync): Daemon {
 export function disconnectDaemon(daemon: Daemon): void {
   const other = otherOwner();
   if (other) return other.disconnectDaemon(daemon);
+  listingsByDaemon.delete(daemon);
   store.stopDaemon(daemon);
 }
 
@@ -230,18 +232,47 @@ function view(): ClusterState {
   return store.getState(store.currentDaemon());
 }
 
+/** Each daemon's project list, so a sidebar row keyed by placement reads as its project's key. */
+const listingsByDaemon = new Map<Daemon, readonly ProjectListing[]>();
+
+/** The project lists by the app's host id; a daemon whose id is not known yet is listed under "". */
+function listsByHost(): Map<string, readonly ProjectListing[]> {
+  const out = new Map<string, readonly ProjectListing[]>();
+  for (const [daemon, projects] of listingsByDaemon) {
+    const host = store.hostIdOf(daemon) ?? "";
+    out.set(host, [...(out.get(host) ?? []), ...projects]);
+  }
+  return out;
+}
+
+/**
+ * The cluster key of a sidebar row or a stored key. Paseo keys a row by its project's shared key
+ * only while that key is unique on its host; otherwise (a worktree added as a project of its own)
+ * by `["<serverId>","<projectId>"]`. Clusters store the shared key, so both read as it.
+ */
+function clusterKey(key: string, lists?: Map<string, readonly ProjectListing[]>): string {
+  return key.startsWith("[") ? canonicalClusterKey(key, lists ?? listsByHost()) : canonicalClusterKey(key, new Map());
+}
+
+/** A cluster's projects as cluster keys, in its order, each once. */
+function clusterKeysOf(cluster: Pick<Cluster, "projects">): string[] {
+  const lists = listsByHost();
+  return [...new Set(cluster.projects.map((key) => clusterKey(key, lists)))];
+}
+
+/** The sidebar's project groups, each with its cluster key. Projects sharing a key share it here. */
 function projectGroups(): { group: El; key: string }[] {
   const first = document.querySelector(`[data-testid^="${ROW_PREFIX}"]`);
   let list: El | null = first;
   // Climb to the container whose direct children are the per-project groups.
   while (list && list.querySelectorAll(`[data-testid^="${ROW_PREFIX}"]`).length < 2) list = list.parentElement;
-  if (!list) {
-    return first ? [{ group: first, key: (first.getAttribute("data-testid") ?? "").slice(ROW_PREFIX.length) }] : [];
-  }
+  const lists = listsByHost();
+  const keyOf = (row: El) => clusterKey((row.getAttribute("data-testid") ?? "").slice(ROW_PREFIX.length), lists);
+  if (!list) return first ? [{ group: first, key: keyOf(first) }] : [];
   const out: { group: El; key: string }[] = [];
   for (const child of Array.from(list.children)) {
     const row = child.querySelector(`[data-testid^="${ROW_PREFIX}"]`);
-    if (row) out.push({ group: child, key: (row.getAttribute("data-testid") ?? "").slice(ROW_PREFIX.length) });
+    if (row) out.push({ group: child, key: keyOf(row) });
   }
   return out;
 }
@@ -269,11 +300,15 @@ function scheduleFilter(): void {
   });
 }
 
-/** Tells the store which daemon a project belongs to, so Recents can span all of them. */
-export function registerProjects(daemon: Daemon, keys: readonly string[]): void {
+/**
+ * Tells the store which daemon a project belongs to, so Recents can span all of them, and keeps the
+ * daemon's project list to read the sidebar's placement row keys as cluster keys.
+ */
+export function registerProjects(daemon: Daemon, keys: readonly string[], projects: readonly ProjectListing[] = []): void {
   const other = otherOwner();
-  if (other) return other.registerProjects(daemon, keys);
+  if (other) return other.registerProjects(daemon, keys, projects);
   for (const key of keys) store.registerProjectKey(daemon, key);
+  listingsByDaemon.set(daemon, projects);
   scheduleFilter();
 }
 
@@ -359,7 +394,7 @@ function adoptNewProjects(groups: { key: string }[]): void {
   const clusters = store.mergedClusters();
   const cluster = clusters.find((c) => c.id === store.getActive());
   if (!cluster) return;
-  const assigned = new Set(clusters.flatMap((c) => c.projects));
+  const assigned = new Set(clusters.flatMap(clusterKeysOf));
   // Each project is filed on its own daemon; one whose daemon is not known yet is left alone.
   for (const key of fresh) if (!assigned.has(key) && store.daemonOfKey(key)) store.moveProject(key, cluster.id);
 }
@@ -422,6 +457,7 @@ function applyFilter(): void {
   const active = store.getActive();
   const recent = active === null;
   const cluster = store.mergedClusters().find((c) => c.id === active) ?? null;
+  const members = cluster ? clusterKeysOf(cluster) : [];
   // One window for the whole bar, the one set on the daemon it is anchored to. Recents mixes
   // daemons, and a project ageing out on a clock the user cannot see from here reads as a bug.
   const hours = recentHours();
@@ -466,13 +502,13 @@ function applyFilter(): void {
   const recentOrder = recent ? syncRecents(groups, latestByKey) : [];
   for (const { group, key } of groups) {
     const hide = cluster
-      ? !cluster.projects.includes(key) || hasLiveWorkspaces(key) === false
+      ? !members.includes(key) || hasLiveWorkspaces(key) === false
       : recent && !recentOrder.includes(key);
     setDisplay(group, hide);
     const order = recent
       ? String(recentOrder.indexOf(key))
-      : cluster && cluster.projects.includes(key)
-        ? String(cluster.projects.indexOf(key))
+      : cluster && members.includes(key)
+        ? String(members.indexOf(key))
         : "";
     if (group.style.order !== order) group.style.order = order;
     placeHideButton(group, key, recent);
@@ -834,7 +870,7 @@ function updateRings(): void {
   if (recentCircle) paintRing(recentCircle, ringStateOf(store.recentKeys()));
   for (const cluster of store.mergedClusters()) {
     const el = bar.querySelector(`[data-cluster-id="${cluster.id}"]`);
-    if (el) paintRing(el, ringStateOf(cluster.projects));
+    if (el) paintRing(el, ringStateOf(clusterKeysOf(cluster)));
   }
 }
 
@@ -1059,7 +1095,8 @@ function restingRect(el: El): { left: number; top: number; bottom: number; width
 function activeOrder(): string[] | null {
   const active = store.getActive();
   if (active === null) return store.recentKeys();
-  return store.mergedClusters().find((c) => c.id === active)?.projects ?? null;
+  const cluster = store.mergedClusters().find((c) => c.id === active);
+  return cluster ? clusterKeysOf(cluster) : null;
 }
 
 /** Where a dragged project would land among the visible projects of the current view. */
@@ -1067,7 +1104,7 @@ function dropSlot(dragKey: string, y: number): (DropSlot & { lineTop: number; le
   const order = activeOrder();
   if (!order || !order.includes(dragKey)) return null;
   const visible = projectGroups()
-    .filter((g) => g.key !== dragKey && g.group.style.display !== "none" && order.includes(g.key))
+    .filter((g, i, all) => g.key !== dragKey && g.group.style.display !== "none" && order.includes(g.key) && all.findIndex((o) => o.key === g.key) === i)
     .map((g) => ({ key: g.key, rect: restingRect(g.group) }))
     .sort((a, b) => a.rect.top - b.rect.top);
   const draggedGroup = projectGroups().find((g) => g.key === dragKey)?.group;
@@ -1600,7 +1637,7 @@ interface Owner {
  * the same page. An older copy owning the slot cannot answer what a newer one asks of it, so they
  * take separate slots and each runs on its own until every daemon is on the same version.
  */
-const OWNER_KEY = "__paseoClustersOwner:12";
+const OWNER_KEY = "__paseoClustersOwner:13";
 let self: Owner | null = null;
 
 function ownerSlot(): { [OWNER_KEY]?: Owner } {

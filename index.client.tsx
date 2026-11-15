@@ -162,7 +162,11 @@ export default function contribute(client: PluginClientContext) {
     try {
       const { projects } = await client.paseo.projects.list();
       const keys = projects.map(sidebarKey).filter((key): key is string => key !== null);
-      registerProjects(daemon, keys);
+      registerProjects(
+        daemon,
+        keys,
+        projects.map((p) => ({ projectId: p.projectId, projectKey: p.projectKey ?? null, projectRootPath: p.projectRootPath ?? null })),
+      );
       // Remote keys carry no path, so their workspaces are matched through the project's root.
       registerProjectRoots(
         projects.flatMap((p) => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createKeyMatcher, indexHostProjects, keyMatchesByText, normalizeStoredKey, sidebarKeyOf } from "./project-keys.ts";
+import { canonicalClusterKey, createKeyMatcher, indexHostProjects, keyMatchesByText, normalizeStoredKey, sidebarKeyOf } from "./project-keys.ts";
 
 // Modelled on a 0.16 daemon: new projects carry an opaque id, older ones a remote id or a path.
 const SRV = "srv_local";
@@ -79,4 +79,52 @@ test("a project without a key gets one derived from its id", () => {
 test("text matching keeps the pre-0.16 rules", () => {
   assert.equal(keyMatchesByText("host:srv_1:/home/me/work", { projectId: "/Home/Me/Work", projectRootPath: "/Home/Me/Work" }), true);
   assert.equal(keyMatchesByText("remote:github.com/acme/app", { projectId: "remote:github.com/acme/app", projectRootPath: "/srv/app" }), true);
+});
+
+// Modelled on a real host: a project and a worktree added as a project of its own share one key,
+// so Paseo's sidebar draws each under a placement key (`["<serverId>","<projectId>"]`).
+const DIALER = "remote:github.com/overflowleadsllc/overflow-dialer";
+const shared = [
+  { projectId: "prj_dialer", projectKey: DIALER, projectRootPath: "/home/me/overflowleadsllc/overflow-dialer" },
+  { projectId: "prj_fox", projectKey: DIALER, projectRootPath: "/home/me/.paseo/worktrees/x/magical-fox" },
+  { projectId: "prj_infra", projectKey: "remote:github.com/overflowleadsllc/overflowleads-infra", projectRootPath: "/home/me/infra" },
+  { projectId: "/home/me/Notes", projectRootPath: "/home/me/Notes" },
+];
+const sharedLists = new Map([[SRV, shared]]);
+const sharedMatches = createKeyMatcher(new Map([[SRV, indexHostProjects(SRV, shared)]]));
+
+test("a key shared by two projects names the workspaces of both", () => {
+  assert.equal(sharedMatches(DIALER, ws("prj_dialer", "/home/me/overflowleadsllc/overflow-dialer")), true);
+  assert.equal(sharedMatches(DIALER, ws("prj_fox", "/home/me/.paseo/worktrees/x/magical-fox")), true);
+  assert.equal(sharedMatches(DIALER, ws("prj_infra", "/home/me/infra")), false);
+});
+
+test("a stored placement key of a shared-key project names every project under that key", () => {
+  const stored = JSON.stringify([SRV, "prj_fox"]);
+  assert.equal(sharedMatches(stored, ws("prj_dialer", "/home/me/overflowleadsllc/overflow-dialer")), true);
+  assert.equal(sharedMatches(stored, ws("prj_fox", "/home/me/.paseo/worktrees/x/magical-fox")), true);
+  assert.equal(sharedMatches(stored, ws("prj_infra", "/home/me/infra")), false);
+});
+
+test("the sidebar's placement row keys read as the projects' shared key", () => {
+  assert.equal(canonicalClusterKey(JSON.stringify([SRV, "prj_dialer"]), sharedLists), DIALER);
+  assert.equal(canonicalClusterKey(JSON.stringify([SRV, "prj_fox"]), sharedLists), DIALER);
+});
+
+test("a placement row key of a project without a key reads as its derived local key", () => {
+  assert.equal(canonicalClusterKey(JSON.stringify([SRV, "/home/me/Notes"]), sharedLists), `host:${SRV}:/home/me/notes`);
+});
+
+test("a placement row key is resolved on any listed host when its own is not known by id", () => {
+  const unidentified = new Map([["", shared]]);
+  assert.equal(canonicalClusterKey(JSON.stringify([SRV, "prj_fox"]), unidentified), DIALER);
+});
+
+test("shared keys and stored legacy keys read as themselves or their canonical form", () => {
+  assert.equal(canonicalClusterKey(DIALER, sharedLists), DIALER);
+  assert.equal(canonicalClusterKey(`remote:host:${SRV}:/home/me/slides`, sharedLists), `host:${SRV}:/home/me/slides`);
+  // An unknown placement stays as it is, so nothing is lost while the project list loads.
+  const unknown = JSON.stringify([SRV, "prj_unknown"]);
+  assert.equal(canonicalClusterKey(unknown, sharedLists), unknown);
+  assert.equal(canonicalClusterKey(JSON.stringify(["placement", SRV, "prj_fox", 0]), sharedLists), DIALER);
 });

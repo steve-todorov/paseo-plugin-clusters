@@ -80,13 +80,21 @@ export function keyMatchesByText(key: string, w: WorkspaceKeyFields): boolean {
   return path === w.projectRootPath.toLowerCase() || path === w.projectId.toLowerCase();
 }
 
-/** A sidebar placement key (`["<serverId>","<projectId>"]`), used for projects without a shared key. */
+/**
+ * A sidebar placement key: `["<serverId>","<projectId>"]`, or `["placement","<serverId>","<projectId>",n]`
+ * on a collision. Paseo keys a sidebar row so when its project's shared key is missing or not unique
+ * on its host, as when a worktree was added as a project of its own.
+ */
 function placementOf(key: string): { serverId: string; projectId: string } | null {
   if (!key.startsWith("[")) return null;
   try {
     const parsed: unknown = JSON.parse(key);
-    if (Array.isArray(parsed) && parsed.length === 2 && parsed.every((part) => typeof part === "string")) {
+    if (!Array.isArray(parsed)) return null;
+    if (parsed.length === 2 && parsed.every((part) => typeof part === "string")) {
       return { serverId: parsed[0], projectId: parsed[1] };
+    }
+    if (parsed.length === 4 && parsed[0] === "placement" && typeof parsed[1] === "string" && typeof parsed[2] === "string") {
+      return { serverId: parsed[1], projectId: parsed[2] };
     }
   } catch {
     // Not a placement key.
@@ -95,17 +103,38 @@ function placementOf(key: string): { serverId: string; projectId: string } | nul
 }
 
 /**
+ * The one key a cluster stores for a sidebar row or a stored key: the project's sidebar key
+ * (`remote:…` or `host:…`). A placement key reads as the key of the project it places, looked up in
+ * its host's project list, or in any list holding that project id when the host is not known by id
+ * (`""`); every project under that key then belongs with it. Unknown placements stay as they are.
+ */
+export function canonicalClusterKey(key: string, lists: ReadonlyMap<string, readonly ProjectListing[]>): string {
+  const normalized = normalizeStoredKey(key);
+  const placement = placementOf(normalized);
+  if (!placement) return normalized;
+  const find = (projects: readonly ProjectListing[] | undefined) => projects?.find((p) => p.projectId === placement.projectId);
+  const project = find(lists.get(placement.serverId)) ?? [...lists.values()].map(find).find(Boolean);
+  return project ? sidebarKeyOf(placement.serverId, project) : normalized;
+}
+
+/**
  * The matcher for a set of host project lists: a key names a workspace when the workspace's host
- * lists its project under that key, or, failing that, when the key's own text names it.
+ * lists its project under that key, or, failing that, when the key's own text names it. A stored
+ * placement key names every project under the key of the project it places.
  */
 export function createKeyMatcher(index: ProjectIndex): (key: string, w: WorkspaceKeyFields) => boolean {
+  const keyOfPlacement = (serverId: string, projectId: string): string | null => {
+    for (const [key, ids] of index.get(serverId) ?? []) if (ids.has(projectId)) return key;
+    return null;
+  };
   return (key, w) => {
     const normalized = normalizeStoredKey(key);
     const placement = placementOf(normalized);
-    if (placement) return placement.projectId === w.projectId && (!w.hostId || placement.serverId === w.hostId);
-    const lowered = normalized.toLowerCase();
+    const placed = placement ? keyOfPlacement(placement.serverId, placement.projectId) : null;
+    if (placement && !placed) return placement.projectId === w.projectId && (!w.hostId || placement.serverId === w.hostId);
+    const lowered = placed ?? normalized.toLowerCase();
     const hosts = w.hostId ? [index.get(w.hostId)] : [...index.values()];
     for (const host of hosts) if (host?.get(lowered)?.has(w.projectId)) return true;
-    return keyMatchesByText(normalized, w);
+    return !placed && keyMatchesByText(normalized, w);
   };
 }
