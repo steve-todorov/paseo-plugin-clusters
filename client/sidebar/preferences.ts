@@ -22,6 +22,8 @@ const DEFAULT_SETTINGS = parseSidebarSettings({});
 export interface StoredSidebarSettings {
   /** What the view shows: the last change made here, else the stored document, else the defaults. */
   settings: SidebarSettings;
+  /** The stored document has been read; changes made before it would overwrite it with defaults. */
+  ready: boolean;
   update(change: (current: SidebarSettings) => SidebarSettings): void;
 }
 
@@ -73,5 +75,5 @@ export function useStoredSidebarSettings(): StoredSidebarSettings {
     });
   }, [pending, revision, stored, settled]);
 
-  return { settings: pending ?? stored, update };
+  return { settings: pending ?? stored, ready: state.status === "ready", update };
 }

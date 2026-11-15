@@ -97,6 +97,8 @@ export const SidebarSettingsSchema = z.object({
   projectOrder: StringList,
   /** Workspace keys per project key, for the "Manual" sort. */
   workspaceOrderByProject: z.record(z.string(), z.array(z.string())).catch({}),
+  /** Pinned workspace keys in the user's order, laid over "most recently pinned first". */
+  pinnedWorkspaceOrder: StringList,
 });
 
 export type SidebarSettings = z.output<typeof SidebarSettingsSchema>;

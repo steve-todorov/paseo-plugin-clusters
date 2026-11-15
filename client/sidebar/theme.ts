@@ -38,3 +38,22 @@ export function palette(theme: Theme) {
     selected: theme.colors.surface2,
   };
 }
+
+/**
+ * A row being dragged (`projectRowDragging` / `workspaceRowDragging`): lifted on surface2 with a
+ * border and the app's `shadow.md`, which the plugin theme does not carry.
+ */
+export function draggingRowStyle(theme: Theme) {
+  const dark = isDark(theme);
+  return {
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    transform: [{ scale: 1.02 }],
+    zIndex: 3,
+    shadowColor: dark ? "rgba(0, 0, 0, 0.20)" : "rgba(0, 0, 0, 0.04)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: dark ? 8 : 16,
+    elevation: dark ? 8 : 4,
+  } as const;
+}

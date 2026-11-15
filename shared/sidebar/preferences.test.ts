@@ -14,9 +14,10 @@ import {
 
 test("an empty document reads as Paseo's defaults", () => {
   const settings = parseSidebarSettings({});
-  const { projectOrder, workspaceOrderByProject, ...preferences } = settings;
+  const { projectOrder, workspaceOrderByProject, pinnedWorkspaceOrder, ...preferences } = settings;
   assert.deepEqual(preferences, DEFAULT_SIDEBAR_PREFERENCES);
   assert.deepEqual(projectOrder, []);
+  assert.deepEqual(pinnedWorkspaceOrder, []);
   assert.deepEqual(workspaceOrderByProject, {});
 });
 

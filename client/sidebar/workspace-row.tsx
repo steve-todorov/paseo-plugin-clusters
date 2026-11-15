@@ -6,12 +6,13 @@ import type { HostBadgeModel } from "../../shared/sidebar/host-badges";
 import { selectWorkspaceServiceSummary } from "../../shared/sidebar/service-summary";
 import { normalizeCurrentBranch, resolveWorkspaceTitle } from "../../shared/sidebar/workspace-row";
 import { useWorkspaceDetail } from "../workspace-details";
+import { useGuardedPress } from "./drag-list";
 import { useWorkspaceLabels } from "./labels";
 import { WorkspaceMetaRow } from "./meta-row";
 import { useSidebarPreferences } from "./preferences";
 import { ProjectStatusIndicator, projectColorKey } from "./project-icon";
 import { StatusRing } from "./status-ring";
-import { LINE, ROW_HEIGHT, type Theme, palette } from "./theme";
+import { LINE, ROW_HEIGHT, type Theme, draggingRowStyle, palette } from "./theme";
 import { WorkspaceTrailing } from "./trailing";
 
 /*
@@ -37,6 +38,7 @@ export function WorkspaceRow({
   hostBadge,
   hoisted = false,
   indented = false,
+  dragging = false,
 }: {
   reference: WorkspaceRef;
   theme: Theme;
@@ -48,6 +50,8 @@ export function WorkspaceRow({
   hoisted?: boolean;
   /** Under a status header, which the row steps in from (`rowIndented`); elsewhere it sits flush. */
   indented?: boolean;
+  /** Lifted by a drag. */
+  dragging?: boolean;
 }) {
   const w = useWorkspace(reference, (item) => ({
     name: item.name,
@@ -67,6 +71,7 @@ export function WorkspaceRow({
   const { titleSource, trailing } = useSidebarPreferences();
   const hover = useHover();
   const labels = useWorkspaceLabels(reference.hostId, w?.labels);
+  const guarded = useGuardedPress();
   if (!w) return null;
   const c = theme.colors;
   const colors = palette(theme);
@@ -78,7 +83,7 @@ export function WorkspaceRow({
       accessibilityRole="button"
       accessibilityState={{ selected }}
       accessibilityLabel={title}
-      onPress={() => navigation.openWorkspace(reference)}
+      onPress={guarded(() => navigation.openWorkspace(reference))}
       onHoverIn={hover.onHoverIn}
       onHoverOut={hover.onHoverOut}
       style={({ pressed }) => ({
@@ -90,6 +95,9 @@ export function WorkspaceRow({
         borderRadius: 8,
         justifyContent: "center",
         backgroundColor: pressed ? c.surface2 : (fill ?? "transparent"),
+        // Paseo lays the dragging style over hover and selection, under pressed.
+        ...(dragging ? draggingRowStyle(theme) : null),
+        ...(pressed ? { backgroundColor: c.surface2 } : null),
       })}
     >
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, width: "100%" }}>

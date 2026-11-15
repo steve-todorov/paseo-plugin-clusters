@@ -5,6 +5,7 @@ import { Platform, Pressable, Text, View } from "react-native";
 import type { HostBadgeModel } from "../../shared/sidebar/host-badges";
 import { selectPinnedVisibility } from "../../shared/sidebar/pinned";
 import { t } from "../web";
+import { DragList } from "./drag-list";
 import { GhostRow } from "./ghost-row";
 import { ROW_HEIGHT, type Theme } from "./theme";
 import { WorkspaceRow, useHover } from "./workspace-row";
@@ -22,14 +23,17 @@ export function PinnedSection({
   activeKey,
   navigation,
   hostBadges,
+  onReorder,
 }: {
-  /** Most recently pinned first. */
+  /** Most recently pinned first, under the order the user dragged them into. */
   rows: readonly WorkspaceRef[];
   theme: Theme;
   now: number;
   activeKey: string | null;
   navigation: PluginSidebarViewProps["navigation"];
   hostBadges: ReadonlyMap<string, HostBadgeModel>;
+  /** A drop hands the shown rows' new order here; unset, the rows do not drag. They drag in every grouping, as in Paseo. */
+  onReorder?: (keys: string[]) => void;
 }) {
   // The app keeps both per device; here they last as long as the view.
   const [collapsed, setCollapsed] = useState(false);
@@ -40,7 +44,7 @@ export function PinnedSection({
     expanded,
     isOpen: (row) => row.key === activeKey,
   });
-  const renderRow = (row: WorkspaceRef) => (
+  const renderRow = (row: WorkspaceRef, dragging = false) => (
     <WorkspaceRow
       key={row.key}
       reference={row}
@@ -50,6 +54,7 @@ export function PinnedSection({
       navigation={navigation}
       hostBadge={hostBadges.get(row.hostId) ?? null}
       hoisted
+      dragging={dragging}
     />
   );
   return (
@@ -58,7 +63,13 @@ export function PinnedSection({
       {collapsed ? null : (
         <>
           {leadingItem ? renderRow(leadingItem) : null}
-          {visibleItems.map(renderRow)}
+          <DragList
+            items={visibleItems}
+            keyOf={(row) => row.key}
+            enabled={onReorder !== undefined}
+            onReorder={(reordered) => onReorder?.(reordered.map((row) => row.key))}
+            renderItem={(row, state) => <View {...state.handle}>{renderRow(row, state.dragging)}</View>}
+          />
           {canToggle ? (
             <GhostRow
               icon={expanded ? "ChevronUp" : "ChevronDown"}

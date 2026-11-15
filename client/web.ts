@@ -922,6 +922,13 @@ export function moveProjectToCluster(key: string, clusterId: string | null): Clu
   return store.moveProject(key, clusterId);
 }
 
+/** Puts these projects first, in this order, in one cluster: the order its filter lists them in. */
+export function reorderClusterProjects(id: string, ordered: readonly string[]): void {
+  const other = otherOwner();
+  if (other) return other.reorderClusterProjects(id, ordered);
+  store.reorderProjects(id, ordered);
+}
+
 /** Every connected daemon's clusters, each on its own. */
 export function mergedClusters(): MergedCluster[] {
   const other = otherOwner();
@@ -1534,6 +1541,7 @@ interface Owner {
   touchWorkspace: typeof touchWorkspace;
   removeWorkspace: typeof removeWorkspace;
   moveProjectToCluster: typeof moveProjectToCluster;
+  reorderClusterProjects: typeof reorderClusterProjects;
   mergedClusters: typeof mergedClusters;
   getActive: typeof getActive;
   setActive: typeof setActive;
@@ -1559,7 +1567,7 @@ interface Owner {
  * the same page. An older copy owning the slot cannot answer what a newer one asks of it, so they
  * take separate slots and each runs on its own until every daemon is on the same version.
  */
-const OWNER_KEY = "__paseoClustersOwner:10";
+const OWNER_KEY = "__paseoClustersOwner:11";
 let self: Owner | null = null;
 
 function ownerSlot(): { [OWNER_KEY]?: Owner } {
@@ -1581,6 +1589,7 @@ function otherOwner(): Owner | null {
     touchWorkspace,
     removeWorkspace,
     moveProjectToCluster,
+    reorderClusterProjects,
     mergedClusters,
     getActive,
     setActive,

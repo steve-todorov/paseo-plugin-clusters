@@ -154,6 +154,16 @@ export function useSidebarList({ settings, clusterProjects, recents, keyMatches 
           : 0) || compareWorkspaces(sortable(a), sortable(b)),
     groupBy: (w) => ({ key: w.project.key, title: w.projectDisplayName }),
   });
+  // The cluster's key for each project listed, so a drop can be written back as the cluster's order.
+  // The group title carries the key: groups are the only way to read a value off every snapshot.
+  const clusterKeyGroups = useWorkspaces({
+    where: (w) => clusterProjects !== null && visible(w),
+    groupBy: (w) => ({ key: w.project.key, title: clusterProjects?.[placeIn(w)] ?? "" }),
+  });
+  const clusterKeyOf = useMemo(
+    () => new Map(clusterKeyGroups.map((group) => [group.key, group.title ?? ""])),
+    [clusterKeyGroups],
+  );
   // A cluster keeps its own order and Recents its recency; All lays the user's order over names.
   const groups: ListGroup[] = useMemo(() => {
     let ordered: ListGroup[] = projectGroups.map((group) => ({ key: group.key, title: group.title ?? "", items: group.items }));
@@ -172,7 +182,12 @@ export function useSidebarList({ settings, clusterProjects, recents, keyMatches 
   }, [projectGroups, recents, recentOrder, clusterProjects, settings.projectOrder, settings.sort, settings.workspaceOrderByProject]);
 
   // Pinned workspaces leave their project for the section on top, which follows the same filters.
-  const pinned = useWorkspaces({ where: (w) => visible(w) && w.pinnedAt !== null, orderBy: byPinnedAtDesc });
+  // Most recently pinned first, with the order the user dragged them into laid over it.
+  const pinnedByTime = useWorkspaces({ where: (w) => visible(w) && w.pinnedAt !== null, orderBy: byPinnedAtDesc });
+  const pinned = useMemo(
+    () => applyStoredOrdering({ items: pinnedByTime, storedOrder: settings.pinnedWorkspaceOrder, getKey: (ref) => ref.key }),
+    [pinnedByTime, settings.pinnedWorkspaceOrder],
+  );
   const pinnedKeys = useMemo(() => new Set(pinned.map((ref) => ref.key)), [pinned]);
 
   // Rows that are not done never hide behind "Show more".
@@ -197,6 +212,7 @@ export function useSidebarList({ settings, clusterProjects, recents, keyMatches 
     resolvedLabelFilter,
     sortSupported,
     groups,
+    clusterKeyOf,
     pinned,
     pinnedKeys,
     busyKeys,

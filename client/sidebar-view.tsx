@@ -4,7 +4,9 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState, useSyncExter
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { defaultHostAppearance, selectHostBadges, shouldShowSidebarHostLabels } from "../shared/sidebar/host-badges";
 import type { SidebarPreferences } from "../shared/sidebar/preferences";
+import { computeSidebarOrderUpdates, hasVisibleOrderChanged, orderAfterDrop } from "../shared/sidebar/reorder";
 import { DisplayMenuSurface, DisplayMenuTrigger, useDisplayMenuState } from "./sidebar/display-menu";
+import { DragHostProvider, DragList, useDragHost } from "./sidebar/drag-list";
 import { FilterEmptyState } from "./sidebar/filter-empty";
 import { PinnedSection } from "./sidebar/pinned-section";
 import { SidebarPreferencesProvider, useStoredSidebarSettings } from "./sidebar/preferences";
@@ -24,6 +26,7 @@ import {
   keyMatches,
   mergedClusters,
   normalizeRecentHours,
+  reorderClusterProjects,
   setActive,
   subscribe,
   t,
@@ -73,7 +76,7 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
   const cutoff = unlimited ? 0 : now - hours * 60 * 60 * 1000;
   const recentHidden = state.recentHidden;
 
-  const { settings, update } = useStoredSidebarSettings();
+  const { settings, ready, update } = useStoredSidebarSettings();
   const list = useSidebarList({
     settings,
     clusterProjects: cluster?.projects ?? null,
@@ -86,6 +89,65 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
       : null,
     keyMatches,
   });
+
+  // Drag reorder. In a cluster the project order is the cluster's own, shared with the desktop
+  // circles; in All it is this device's, as Paseo keeps its sidebar order per device. Recents
+  // orders projects by use, so they do not drag there. Workspaces drag under Manual only, and
+  // pinned rows always; both orders are this device's.
+  const { host, frameProps, scrollProps } = useDragHost();
+  const projectsDrag = (cluster !== null || ready) && !recent && settings.grouping === "project";
+  const workspacesDrag = ready && settings.sort === "manual";
+  const reorderProjects = (keys: string[]) => {
+    if (cluster) {
+      const ordered = keys.flatMap((key) => list.clusterKeyOf.get(key) || []);
+      if (hasVisibleOrderChanged({ currentOrder: cluster.projects, reorderedVisibleKeys: ordered })) {
+        reorderClusterProjects(cluster.id, ordered);
+      }
+      return;
+    }
+    update((current) => {
+      const next = orderAfterDrop(current.projectOrder, keys);
+      return next ? { ...current, projectOrder: next } : current;
+    });
+  };
+  const reorderWorkspaces = (projectKey: string) => (keys: string[]) =>
+    update((current) => {
+      const next = orderAfterDrop(current.workspaceOrderByProject[projectKey] ?? [], keys);
+      return next ? { ...current, workspaceOrderByProject: { ...current.workspaceOrderByProject, [projectKey]: next } } : current;
+    });
+  const reorderPinned = (keys: string[]) =>
+    update((current) => {
+      const next = orderAfterDrop(current.pinnedWorkspaceOrder, keys);
+      return next ? { ...current, pinnedWorkspaceOrder: next } : current;
+    });
+
+  // Paseo's order reconciliation: projects new to All join the end of its order, and under Manual
+  // new workspaces join the top of theirs, so a later drag never moves them unexpectedly.
+  const inAll = !recent && cluster === null;
+  const orderUpdates = (current: typeof settings) =>
+    computeSidebarOrderUpdates({
+      projects: list.groups.map((group) => ({ key: group.key, workspaceKeys: group.items.map((ref) => ref.key) })),
+      projectOrder: inAll ? current.projectOrder : null,
+      workspaceOrderOf: current.sort === "manual" ? (key) => current.workspaceOrderByProject[key] ?? [] : null,
+    });
+  useEffect(() => {
+    if (!ready) return;
+    const pending = orderUpdates(settings);
+    if (pending.projectOrder === null && pending.workspaceOrders.length === 0) return;
+    update((current) => {
+      const { projectOrder, workspaceOrders } = orderUpdates(current);
+      if (projectOrder === null && workspaceOrders.length === 0) return current;
+      return {
+        ...current,
+        projectOrder: projectOrder ? [...projectOrder] : current.projectOrder,
+        workspaceOrderByProject: {
+          ...current.workspaceOrderByProject,
+          ...Object.fromEntries(workspaceOrders.map((entry) => [entry.projectKey, [...entry.order]])),
+        },
+      };
+    });
+    // `update` and the closure's inputs are all here: the groups, the view and the settings.
+  }, [ready, list.groups, inAll, settings, update]);
 
   const label = recent ? strings.recentsTooltip(hours) : (cluster?.name ?? strings.allLabel);
 
@@ -146,22 +208,32 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
     ));
   } else {
     // Only Recents drops projects; a cluster or All lists every one it holds.
-    body = list.groups.map((group) => (
-      <ProjectBlock
-        key={group.key}
-        title={group.title}
-        items={group.items}
-        pinnedKeys={list.pinnedKeys}
-        busyKeys={list.busyKeys}
-        theme={theme}
-        now={now}
-        collapsed={collapsed.has(group.key)}
-        onToggle={() => toggle(group.key)}
-        activeKey={activeKey}
-        navigation={navigation}
-        hostBadges={hostBadges}
+    body = (
+      <DragList
+        items={list.groups}
+        keyOf={(group) => group.key}
+        enabled={projectsDrag}
+        onReorder={(groups) => reorderProjects(groups.map((group) => group.key))}
+        renderItem={(group, state) => (
+          <ProjectBlock
+            title={group.title}
+            items={group.items}
+            pinnedKeys={list.pinnedKeys}
+            busyKeys={list.busyKeys}
+            theme={theme}
+            now={now}
+            collapsed={collapsed.has(group.key)}
+            onToggle={() => toggle(group.key)}
+            activeKey={activeKey}
+            navigation={navigation}
+            hostBadges={hostBadges}
+            dragging={state.dragging}
+            handle={state.handle}
+            onReorderWorkspaces={workspacesDrag ? reorderWorkspaces(group.key) : undefined}
+          />
+        )}
       />
-    ));
+    );
   }
 
   return (
@@ -209,13 +281,29 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
             </Text>
             <DisplayMenuTrigger theme={theme} onPress={menu.open} />
           </View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 2, paddingBottom: 16 }}>
-            <PinnedSection rows={list.pinned} theme={theme} now={now} activeKey={activeKey} navigation={navigation} hostBadges={hostBadges} />
-            {body}
-            {!list.filterEmpty && list.groups.length === 0 ? (
-              <Text style={{ color: c.foregroundMuted, fontSize: 14, padding: 8 }}>{strings.noWorkspaces}</Text>
-            ) : null}
-          </ScrollView>
+          <DragHostProvider value={host}>
+            <View {...frameProps}>
+              <ScrollView
+                {...scrollProps}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 2, paddingBottom: 16 }}
+              >
+                <PinnedSection
+                  rows={list.pinned}
+                  theme={theme}
+                  now={now}
+                  activeKey={activeKey}
+                  navigation={navigation}
+                  hostBadges={hostBadges}
+                  onReorder={ready ? reorderPinned : undefined}
+                />
+                {body}
+                {!list.filterEmpty && list.groups.length === 0 ? (
+                  <Text style={{ color: c.foregroundMuted, fontSize: 14, padding: 8 }}>{strings.noWorkspaces}</Text>
+                ) : null}
+              </ScrollView>
+            </View>
+          </DragHostProvider>
           <DisplayMenuSurface
             menu={menu}
             model={{
