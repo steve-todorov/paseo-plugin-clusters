@@ -9,6 +9,8 @@ import { type ProjectListing, sidebarKeyOf } from "./project-keys.ts";
 export interface NamedProjectListing extends ProjectListing {
   projectDisplayName?: string | null;
   projectCustomName?: string | null;
+  /** `git`, `non_git` or `directory`; absent from hosts that do not list it. */
+  projectKind?: string | null;
 }
 
 export interface ScreenProject {

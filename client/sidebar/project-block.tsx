@@ -4,10 +4,12 @@ import { type ReactNode, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { selectSidebarGroupVisibility } from "../../shared/sidebar/group-visibility";
 import type { HostBadgeModel } from "../../shared/sidebar/host-badges";
+import { type ProjectGroup, iconPlacementOf, newWorkspacePlacementOf } from "../../shared/sidebar/project-groups";
 import { t } from "../web";
 import { type DragHandleProps, DragList, useGuardedPress } from "./drag-list";
 import { GhostRow } from "./ghost-row";
-import { ProjectIcon, projectColorKey, useProjectIconData } from "./project-icon";
+import { ProjectIcon, useProjectIconData } from "./project-icon";
+import { projectRefOf } from "./project-grouping";
 import { LINE, ROW_HEIGHT, type Theme, draggingRowStyle, palette } from "./theme";
 import { WorkspaceRow, useHover } from "./workspace-row";
 
@@ -19,7 +21,13 @@ import { WorkspaceRow, useHover } from "./workspace-row";
 type HostBadges = ReadonlyMap<string, HostBadgeModel>;
 
 export interface ProjectBlockProps {
+  /** The group's key (Paseo's project view key), which its lettered icon is coloured by. */
+  groupKey: string;
   title: string;
+  /** The group's projects per host; null while their host's project list is unread. */
+  group: ProjectGroup | null;
+  /** The host a new workspace goes to when the group is on it (Paseo's active host). */
+  preferredHostId: string | null;
   items: readonly WorkspaceRef[];
   /** Workspaces shown in Pinned instead. */
   pinnedKeys: ReadonlySet<string>;
@@ -41,7 +49,10 @@ export interface ProjectBlockProps {
 }
 
 export function ProjectBlock({
+  groupKey,
   title,
+  group,
+  preferredHostId,
   items,
   pinnedKeys,
   theme,
@@ -65,7 +76,12 @@ export function ProjectBlock({
   }));
   if (!head) return null;
   const rows = items.filter((ref) => !pinnedKeys.has(ref.key));
-  const project = head.git ? head.project : null;
+  // As Paseo: the icon is the first host's with a root, "+" makes the workspace on the preferred host
+  // if it can take one, else on the first that can. Before the project list is read, the head's.
+  const iconPlacement = group ? iconPlacementOf(group) : null;
+  const iconProject = iconPlacement ? projectRefOf(iconPlacement) : head.project;
+  const target = group ? newWorkspacePlacementOf(group, preferredHostId) : null;
+  const project = group ? (target ? projectRefOf(target) : null) : head.git ? head.project : null;
   let children: ReactNode = null;
   if (!collapsed) {
     if (rows.length > 0) {
@@ -132,10 +148,10 @@ export function ProjectBlock({
       <ProjectRow
         title={title}
         theme={theme}
-        colorKey={projectColorKey(head.hostId, head.projectId)}
+        colorKey={groupKey}
         collapsed={collapsed}
         onToggle={onToggle}
-        projectRef={head.project}
+        projectRef={iconProject}
         project={project}
         navigation={navigation}
         dragging={dragging}

@@ -86,6 +86,7 @@ export function StatusSection({
       navigation={navigation}
       hostBadge={hostBadges.get(row.hostId) ?? null}
       hoisted
+      leadingName="project"
       indented
     />
   );

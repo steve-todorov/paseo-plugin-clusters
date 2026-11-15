@@ -4,6 +4,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useS
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { defaultHostAppearance, selectHostBadges, shouldShowSidebarHostLabels } from "../shared/sidebar/host-badges";
 import type { SidebarPreferences } from "../shared/sidebar/preferences";
+import { rekeyStoredOrders } from "../shared/sidebar/project-groups";
 import { computeSidebarOrderUpdates, hasVisibleOrderChanged, orderAfterDrop } from "../shared/sidebar/reorder";
 import { DisplayMenuSurface, DisplayMenuTrigger, useDisplayMenuState } from "./sidebar/display-menu";
 import { DragHostProvider, DragList, useDragHost } from "./sidebar/drag-list";
@@ -11,11 +12,12 @@ import { FilterEmptyState } from "./sidebar/filter-empty";
 import { PinnedSection } from "./sidebar/pinned-section";
 import { SidebarPreferencesProvider, useStoredSidebarSettings } from "./sidebar/preferences";
 import { ProjectBlock } from "./sidebar/project-block";
+import { ProjectGroupingProvider } from "./sidebar/project-grouping";
 import { StatusSection } from "./sidebar/status-section";
 import { type Theme, palette } from "./sidebar/theme";
 import { useSidebarList } from "./sidebar/use-sidebar-list";
 import { WorkspaceActionsProvider, useWorkspaceActionsHost } from "./sidebar/workspace-actions";
-import { useClusterKeyMatcher } from "./project-index";
+import { keyMatcherOf, useHostProjectLists } from "./project-index";
 import { WorkspaceDetailsProvider, useWorkspaceDetailsSource } from "./workspace-details";
 import {
   ALL_ID,
@@ -81,8 +83,10 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
   const recentHidden = state.recentHidden;
 
   const { settings, ready, update } = useStoredSidebarSettings();
-  // Cluster keys are sidebar project keys; workspaces are matched to them through each host's projects.
-  const keyMatches = useClusterKeyMatcher();
+  // Cluster keys are sidebar project keys; workspaces are matched to them through each host's projects,
+  // and grouped by those projects as Paseo groups them.
+  const lists = useHostProjectLists();
+  const keyMatches = useMemo(() => keyMatcherOf(lists), [lists]);
   const list = useSidebarList({
     settings,
     clusterProjects: cluster?.projects ?? null,
@@ -94,6 +98,7 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
         }
       : null,
     keyMatches,
+    lists,
   });
 
   // Drag reorder. In a cluster the project order is the cluster's own, shared with the desktop
@@ -127,12 +132,23 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
       return next ? { ...current, pinnedWorkspaceOrder: next } : current;
     });
 
+  // Orders and filters stored under placement keys before groups took Paseo's keys move to them once
+  // the project lists say which group each project is in.
+  const { grouping } = list;
+  useEffect(() => {
+    if (!ready || rekeyStoredOrders(settings, grouping.keyOf) === null) return;
+    update((current) => rekeyStoredOrders(current, grouping.keyOf) ?? current);
+  }, [ready, settings, grouping, update]);
+
   // Paseo's order reconciliation: projects new to All join the end of its order, and under Manual
   // new workspaces join the top of theirs, so a later drag never moves them unexpectedly.
   const inAll = !recent && cluster === null;
+  // A group whose host's project list is not read yet carries a stand-in key; it joins once it has
+  // its own, so the stand-in never takes a place in the stored orders.
+  const settled = list.groups.filter((group) => group.group !== null || !lists.has(group.items[0]?.hostId ?? ""));
   const orderUpdates = (current: typeof settings) =>
     computeSidebarOrderUpdates({
-      projects: list.groups.map((group) => ({ key: group.key, workspaceKeys: group.items.map((ref) => ref.key) })),
+      projects: settled.map((group) => ({ key: group.key, workspaceKeys: group.items.map((ref) => ref.key) })),
       projectOrder: inAll ? current.projectOrder : null,
       workspaceOrderOf: current.sort === "manual" ? (key) => current.workspaceOrderByProject[key] ?? [] : null,
     });
@@ -153,7 +169,7 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
       };
     });
     // `update` and the closure's inputs are all here: the groups, the view and the settings.
-  }, [ready, list.groups, inAll, settings, update]);
+  }, [ready, list.groups, lists, inAll, settings, update]);
 
   const label = recent ? strings.recentsTooltip(hours) : (cluster?.name ?? strings.allLabel);
 
@@ -225,7 +241,10 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
         onReorder={(groups) => reorderProjects(groups.map((group) => group.key))}
         renderItem={(group, state) => (
           <ProjectBlock
+            groupKey={group.key}
             title={group.title}
+            group={group.group}
+            preferredHostId={active.workspace?.hostId ?? null}
             items={group.items}
             pinnedKeys={list.pinnedKeys}
             busyKeys={list.busyKeys}
@@ -246,98 +265,100 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
   }
 
   return (
-    <SidebarPreferencesProvider value={preferences}>
-      <WorkspaceDetailsProvider value={details}>
-        <WorkspaceActionsProvider value={rowActions.value}>
-          <View
-            ref={rootRef}
-            collapsable={false}
-            style={{ flex: 1 }}
-            onLayout={(event) => setBounds({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
-          >
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={{ flexGrow: 0 }}
-              contentContainerStyle={{ gap: 8, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 4, alignItems: "center" }}
-            >
-              <Circle theme={theme} label={strings.recentsLabel} active={recent} onPress={() => setActive(null)} background="#dbeafe">
-                <Icon name="Zap" size={15} color="#3b82f6" />
-              </Circle>
-              {clusters.map((cl) => (
-                <Circle
-                  key={cl.id}
-                  theme={theme}
-                  label={cl.name}
-                  active={cl.id === selected}
-                  onPress={() => setActive(cl.id)}
-                  background={cl.color}
-                >
-                  <ClusterFace cluster={cl} />
-                </Circle>
-              ))}
-              <Circle theme={theme} label={strings.allLabel} active={selected === ALL_ID} onPress={() => setActive(ALL_ID)} background="#e4e4e7">
-                <Icon name="Layers" size={15} color="#52525b" />
-              </Circle>
-              <Circle theme={theme} label={strings.manageLabel} active={false} onPress={onManage} background="transparent" outlined>
-                <Icon name="Plus" size={15} color={c.foregroundMuted} />
-              </Circle>
-            </ScrollView>
-            {/* The list's header line, holding the display menu as Paseo's "Workspaces" header does. */}
+    <ProjectGroupingProvider value={grouping}>
+      <SidebarPreferencesProvider value={preferences}>
+        <WorkspaceDetailsProvider value={details}>
+          <WorkspaceActionsProvider value={rowActions.value}>
             <View
-              onLayout={(event) => setAnchorTop(event.nativeEvent.layout.y + event.nativeEvent.layout.height)}
-              style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 16, paddingRight: 8 }}
+              ref={rootRef}
+              collapsable={false}
+              style={{ flex: 1 }}
+              onLayout={(event) => setBounds({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
             >
-              <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: palette(theme).extraMuted, fontSize: 12 }}>
-                {label}
-              </Text>
-              <DisplayMenuTrigger theme={theme} onPress={menu.open} />
-            </View>
-            <DragHostProvider value={host}>
-              <View {...frameProps}>
-                <ScrollView
-                  {...scrollProps}
-                  style={{ flex: 1 }}
-                  contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 2, paddingBottom: 16 }}
-                >
-                  <PinnedSection
-                    rows={list.pinned}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ flexGrow: 0 }}
+                contentContainerStyle={{ gap: 8, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 4, alignItems: "center" }}
+              >
+                <Circle theme={theme} label={strings.recentsLabel} active={recent} onPress={() => setActive(null)} background="#dbeafe">
+                  <Icon name="Zap" size={15} color="#3b82f6" />
+                </Circle>
+                {clusters.map((cl) => (
+                  <Circle
+                    key={cl.id}
                     theme={theme}
-                    now={now}
-                    activeKey={activeKey}
-                    navigation={navigation}
-                    hostBadges={hostBadges}
-                    onReorder={ready ? reorderPinned : undefined}
-                  />
-                  {body}
-                  {!list.filterEmpty && list.groups.length === 0 ? (
-                    <Text style={{ color: c.foregroundMuted, fontSize: 14, padding: 8 }}>{strings.noWorkspaces}</Text>
-                  ) : null}
-                </ScrollView>
+                    label={cl.name}
+                    active={cl.id === selected}
+                    onPress={() => setActive(cl.id)}
+                    background={cl.color}
+                  >
+                    <ClusterFace cluster={cl} />
+                  </Circle>
+                ))}
+                <Circle theme={theme} label={strings.allLabel} active={selected === ALL_ID} onPress={() => setActive(ALL_ID)} background="#e4e4e7">
+                  <Icon name="Layers" size={15} color="#52525b" />
+                </Circle>
+                <Circle theme={theme} label={strings.manageLabel} active={false} onPress={onManage} background="transparent" outlined>
+                  <Icon name="Plus" size={15} color={c.foregroundMuted} />
+                </Circle>
+              </ScrollView>
+              {/* The list's header line, holding the display menu as Paseo's "Workspaces" header does. */}
+              <View
+                onLayout={(event) => setAnchorTop(event.nativeEvent.layout.y + event.nativeEvent.layout.height)}
+                style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 16, paddingRight: 8 }}
+              >
+                <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: palette(theme).extraMuted, fontSize: 12 }}>
+                  {label}
+                </Text>
+                <DisplayMenuTrigger theme={theme} onPress={menu.open} />
               </View>
-            </DragHostProvider>
-            <DisplayMenuSurface
-              menu={menu}
-              model={{
-                settings,
-                update,
-                sortSupported: list.sortSupported,
-                hosts: list.hosts,
-                projects: list.projects,
-                resolvedProjectFilters: list.resolvedProjectFilters,
-                labels: list.labels,
-                resolvedLabelFilter: list.resolvedLabelFilter,
-              }}
-              theme={theme}
-              compact={layout.compact}
-              anchorTop={anchorTop}
-              bounds={bounds}
-            />
-            {rowActions.surface}
-          </View>
-        </WorkspaceActionsProvider>
-      </WorkspaceDetailsProvider>
-    </SidebarPreferencesProvider>
+              <DragHostProvider value={host}>
+                <View {...frameProps}>
+                  <ScrollView
+                    {...scrollProps}
+                    style={{ flex: 1 }}
+                    contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 2, paddingBottom: 16 }}
+                  >
+                    <PinnedSection
+                      rows={list.pinned}
+                      theme={theme}
+                      now={now}
+                      activeKey={activeKey}
+                      navigation={navigation}
+                      hostBadges={hostBadges}
+                      onReorder={ready ? reorderPinned : undefined}
+                    />
+                    {body}
+                    {!list.filterEmpty && list.groups.length === 0 ? (
+                      <Text style={{ color: c.foregroundMuted, fontSize: 14, padding: 8 }}>{strings.noWorkspaces}</Text>
+                    ) : null}
+                  </ScrollView>
+                </View>
+              </DragHostProvider>
+              <DisplayMenuSurface
+                menu={menu}
+                model={{
+                  settings,
+                  update,
+                  sortSupported: list.sortSupported,
+                  hosts: list.hosts,
+                  projects: list.projects,
+                  resolvedProjectFilters: list.resolvedProjectFilters,
+                  labels: list.labels,
+                  resolvedLabelFilter: list.resolvedLabelFilter,
+                }}
+                theme={theme}
+                compact={layout.compact}
+                anchorTop={anchorTop}
+                bounds={bounds}
+              />
+              {rowActions.surface}
+            </View>
+          </WorkspaceActionsProvider>
+        </WorkspaceDetailsProvider>
+      </SidebarPreferencesProvider>
+    </ProjectGroupingProvider>
   );
 }
 

@@ -11,7 +11,8 @@ import { useGuardedPress, useSuspendDrag } from "./drag-list";
 import { useWorkspaceLabels } from "./labels";
 import { WorkspaceMetaRow } from "./meta-row";
 import { useSidebarPreferences } from "./preferences";
-import { ProjectStatusIndicator, projectColorKey } from "./project-icon";
+import { ProjectStatusIndicator } from "./project-icon";
+import { leadingProjectOf, useProjectGrouping } from "./project-grouping";
 import { StatusRing } from "./status-ring";
 import { LINE, ROW_HEIGHT, type Theme, draggingRowStyle, palette } from "./theme";
 import { InlineTitleField, WorkspaceTrailingSlot } from "./row-actions";
@@ -39,6 +40,7 @@ export function WorkspaceRow({
   navigation,
   hostBadge,
   hoisted = false,
+  leadingName = "group",
   indented = false,
   dragging = false,
 }: {
@@ -50,6 +52,11 @@ export function WorkspaceRow({
   hostBadge: HostBadgeModel | null;
   /** A row no project row contains (a pinned one): its project's icon leads and the meta row names it. */
   hoisted?: boolean;
+  /**
+   * The name a hoisted row gives its project: its group's, as Paseo's pinned rows do, or the
+   * project's own, as its status rows do.
+   */
+  leadingName?: "group" | "project";
   /** Under a status header, which the row steps in from (`rowIndented`); elsewhere it sits flush. */
   indented?: boolean;
   /** Lifted by a drag. */
@@ -75,6 +82,7 @@ export function WorkspaceRow({
   const hover = useHover();
   const labels = useWorkspaceLabels(reference.hostId, w?.labels);
   const guarded = useGuardedPress();
+  const grouping = useProjectGrouping();
   const actions = useWorkspaceActions();
   const session = actions?.rename?.key === reference.key ? actions.rename : null;
   // While renamed in place the row stops pressing, hovering and dragging, as Paseo's does.
@@ -93,6 +101,7 @@ export function WorkspaceRow({
   const title = resolveWorkspaceTitle({ workspace: { name: w.name, currentBranch }, titleSource });
   const hovered = hover.hovered && !editing;
   const fill = selected ? colors.selected : hovered ? colors.hover : null;
+  const leading = leadingProjectOf(grouping, { ...w, hostId: reference.hostId }, leadingName);
   return (
     <Pressable
       accessibilityRole="button"
@@ -118,9 +127,9 @@ export function WorkspaceRow({
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, width: "100%" }}>
         {hoisted ? (
           <ProjectStatusIndicator
-            project={w.project}
-            displayName={w.projectName}
-            colorKey={projectColorKey(reference.hostId, w.projectId)}
+            project={leading.project}
+            displayName={leading.name}
+            colorKey={leading.colorKey}
             indicator={w.indicator}
             // The sidebar's own ground is not in the plugin theme; the base surface stands in.
             backdrop={fill ?? c.surface0}
@@ -166,7 +175,7 @@ export function WorkspaceRow({
           <WorkspaceMetaRow
             theme={theme}
             currentBranch={currentBranch}
-            projectName={hoisted ? w.projectName : null}
+            projectName={hoisted ? leading.name : null}
             hostBadge={hostBadge}
             prHint={detail?.prHint ?? null}
             serviceSummary={IS_DESKTOP && detail ? selectWorkspaceServiceSummary(detail.scripts) : null}

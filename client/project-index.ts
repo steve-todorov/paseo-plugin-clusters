@@ -53,6 +53,7 @@ function listingOf(project: NamedProjectListing): NamedProjectListing {
     projectRootPath: project.projectRootPath ?? null,
     projectDisplayName: project.projectDisplayName ?? null,
     projectCustomName: project.projectCustomName ?? null,
+    projectKind: project.projectKind ?? null,
   };
 }
 

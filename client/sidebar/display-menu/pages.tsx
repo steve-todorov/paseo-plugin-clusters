@@ -22,7 +22,8 @@ import {
 import { SIDEBAR_ROW_ITEMS, type SidebarRowItem } from "../../../shared/sidebar/row-items";
 import { t } from "../../web";
 import type { StoredSidebarSettings } from "../preferences";
-import { ProjectIcon, projectColorKey, useProjectIconData } from "../project-icon";
+import { ProjectIcon, useProjectIconData } from "../project-icon";
+import { leadingProjectOf, useProjectGrouping } from "../project-grouping";
 import { type Theme, isDark } from "../theme";
 import { MenuItem, MenuSeparator, MenuSubTrigger, OPTION_ICON_SIZE, OptionIcon } from "./rows";
 
@@ -404,8 +405,11 @@ function HostStatusDot({ status, theme }: { status: string; theme: Theme }) {
 }
 
 function MenuProjectIcon({ project }: { project: MenuProject }) {
+  const grouping = useProjectGrouping();
   const head = useWorkspace(project.workspace, (w) => ({ project: w.project, hostId: w.hostId, projectId: w.projectId }));
-  return head ? <MenuProjectImage project={head.project} title={project.title} colorKey={projectColorKey(head.hostId, head.projectId)} /> : null;
+  if (!head) return null;
+  const leading = leadingProjectOf(grouping, { ...head, projectName: project.title }, "group");
+  return <MenuProjectImage project={leading.project} title={project.title} colorKey={leading.colorKey} />;
 }
 
 function MenuProjectImage({ project, title, colorKey }: { project: ProjectRef; title: string; colorKey: string }) {

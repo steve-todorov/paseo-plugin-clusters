@@ -32,14 +32,6 @@ const BADGE_OFFSET = -4;
 /** The running ring's knockout frame is 14, re-centred on the same corner. */
 const RING_OFFSET = BADGE_OFFSET - (14 - BADGE_SIZE) / 2;
 
-/**
- * What a project's lettered square hashes for its colour. The app hashes its `projectViewKey`, which
- * plugins do not see; the host and project ids stand in, so the colour can differ from the app's.
- */
-export function projectColorKey(hostId: string, projectId: string): string {
-  return JSON.stringify([hostId, projectId]);
-}
-
 function useHostOnline(hostId: string): boolean {
   const hosts = useHosts();
   return hosts.some((host) => host.serverId === hostId && host.status === "online");

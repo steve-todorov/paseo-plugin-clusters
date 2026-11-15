@@ -11,9 +11,11 @@ import { deriveIdentityColorName } from "../../shared/sidebar/identity-colors";
 import { type WorkspaceLabelDefinition, workspaceLabelKey } from "../../shared/sidebar/labels";
 import { byPinnedAtDesc } from "../../shared/sidebar/pinned";
 import type { SidebarSettings } from "../../shared/sidebar/preferences";
+import { type ProjectGroup, buildProjectGrouping } from "../../shared/sidebar/project-groups";
 import { type StatusBucket, type StatusRowLike, compareStatusRows, orderStatusGroups } from "../../shared/sidebar/status-groups";
 import { type SortableWorkspace, applyStoredOrdering, compareProjectNames, workspaceComparator } from "../../shared/sidebar/workspace-sort";
 import type { WorkspaceKeyFields } from "../../shared/project-keys";
+import type { HostProjectLists } from "../project-index";
 import type { MenuProject } from "./display-menu/pages";
 import { useMergedLabelCatalog } from "./labels";
 
@@ -27,7 +29,6 @@ import { useMergedLabelCatalog } from "./labels";
 interface Snapshot {
   ref: WorkspaceRef;
   hostId: string;
-  project: { key: string };
   projectId: string;
   projectRootPath: string;
   projectDisplayName: string;
@@ -49,19 +50,17 @@ function usedAt(w: { lastPromptAt: string | null; createdAt: string | null }): n
 
 const byUseDesc = (a: Snapshot, b: Snapshot) => usedAt(b) - usedAt(a);
 
+const byName = (a: { title: string; key: string }, b: { title: string; key: string }) =>
+  compareProjectNames({ name: a.title, key: a.key }, { name: b.title, key: b.key });
+
 const sortable = (w: Snapshot): SortableWorkspace => ({ key: w.ref.key, name: w.name, createdAt: w.createdAt, lastPromptAt: w.lastPromptAt });
 
-const statusRow = (w: Snapshot): StatusRowLike => ({
-  key: w.ref.key,
-  bucket: w.indicator,
-  statusEnteredAt: w.statusEnteredAt,
-  projectName: w.projectDisplayName,
-  name: w.name,
-});
-
 export interface ListGroup {
+  /** Paseo's project view key: the shared project key, or the placement key of a lone project. */
   key: string;
   title: string;
+  /** The group's projects per host; null until the host's project list is read. */
+  group: ProjectGroup | null;
   items: readonly WorkspaceRef[];
 }
 
@@ -78,11 +77,27 @@ export interface SidebarListInput {
   recents: { cutoff: number; unlimited: boolean; hiddenAt: (w: WorkspaceKeyFields) => number | undefined } | null;
   /** Whether a cluster key names a workspace's project. */
   keyMatches: (key: string, w: WorkspaceKeyFields) => boolean;
+  /** Every host's project list: what groups the workspaces as Paseo does. */
+  lists: HostProjectLists;
 }
 
-export function useSidebarList({ settings, clusterProjects, recents, keyMatches }: SidebarListInput) {
+export function useSidebarList({ settings, clusterProjects, recents, keyMatches, lists }: SidebarListInput) {
   const hosts = useHosts();
   const serverIds = useMemo(() => hosts.map((host) => host.serverId), [hosts]);
+  // Paseo's project groups: projects sharing a key on one host stay apart, one key across hosts joins.
+  // A workspace whose project is not listed yet keeps a group of its own, under its own name.
+  const grouping = useMemo(() => buildProjectGrouping(lists, serverIds), [lists, serverIds]);
+  const groupKey = (w: Snapshot) => grouping.keyOf(w.hostId, w.projectId);
+  const groupTitle = (w: Snapshot) => grouping.groupOf(w.hostId, w.projectId)?.title ?? w.projectDisplayName;
+  const groupOf = (w: Snapshot) => ({ key: groupKey(w), title: groupTitle(w) });
+  // Status rows sort by their group's name, as Paseo's `projectNamesByViewKey`.
+  const statusRow = (w: Snapshot): StatusRowLike => ({
+    key: w.ref.key,
+    bucket: w.indicator,
+    statusEnteredAt: w.statusEnteredAt,
+    projectName: groupTitle(w),
+    name: w.name,
+  });
   const activeHosts = resolveActiveHostFilters(settings.hostFilters, serverIds);
   const placeIn = (w: Snapshot) => clusterProjects?.findIndex((key) => keyMatches(key, w)) ?? -1;
 
@@ -100,16 +115,16 @@ export function useSidebarList({ settings, clusterProjects, recents, keyMatches 
     where: (w) =>
       recents !== null && base(w) && inRecents(usedAt(w) >= recents.cutoff ? usedAt(w) : 0, recents.hiddenAt(w), recents.unlimited),
     orderBy: byUseDesc,
-    groupBy: (w) => w.project.key,
+    groupBy: groupKey,
   });
   const recentOrder = useMemo(() => new Map(recentGroups.map((group, index) => [group.key, index])), [recentGroups]);
-  const shown = (w: Snapshot) => recents === null || recentOrder.has(w.project.key);
+  const shown = (w: Snapshot) => recents === null || recentOrder.has(groupKey(w));
 
   // Every project the list could show before the project and label filters: the filter picker's rows.
   const availableGroups = useWorkspaces({
     where: (w) => base(w) && shown(w),
-    orderBy: (a, b) => compareProjectNames({ name: a.projectDisplayName, key: a.project.key }, { name: b.projectDisplayName, key: b.project.key }),
-    groupBy: (w) => ({ key: w.project.key, title: w.projectDisplayName }),
+    orderBy: (a, b) => byName(groupOf(a), groupOf(b)),
+    groupBy: groupOf,
   });
   const projects: MenuProject[] = useMemo(
     () => availableGroups.flatMap((group) => (group.items[0] ? [{ key: group.key, title: group.title ?? "", workspace: group.items[0] }] : [])),
@@ -137,7 +152,7 @@ export function useSidebarList({ settings, clusterProjects, recents, keyMatches 
   const visible = (w: Snapshot) =>
     base(w) &&
     shown(w) &&
-    (resolvedProjectFilters.length === 0 || resolvedProjectFilters.includes(w.project.key)) &&
+    (resolvedProjectFilters.length === 0 || resolvedProjectFilters.includes(groupKey(w))) &&
     matchesLabelFilter(w.labels, resolvedLabelFilter);
 
   // Hosts too old to report creation times sort by name, as Paseo does for them.
@@ -152,15 +167,15 @@ export function useSidebarList({ settings, clusterProjects, recents, keyMatches 
       (clusterProjects !== null
         ? placeIn(a) - placeIn(b)
         : recents === null
-          ? compareProjectNames({ name: a.projectDisplayName, key: a.project.key }, { name: b.projectDisplayName, key: b.project.key })
+          ? byName(groupOf(a), groupOf(b))
           : 0) || compareWorkspaces(sortable(a), sortable(b)),
-    groupBy: (w) => ({ key: w.project.key, title: w.projectDisplayName }),
+    groupBy: groupOf,
   });
   // The cluster's key for each project listed, so a drop can be written back as the cluster's order.
   // The group title carries the key: groups are the only way to read a value off every snapshot.
   const clusterKeyGroups = useWorkspaces({
     where: (w) => clusterProjects !== null && visible(w),
-    groupBy: (w) => ({ key: w.project.key, title: clusterProjects?.[placeIn(w)] ?? "" }),
+    groupBy: (w) => ({ key: groupKey(w), title: clusterProjects?.[placeIn(w)] ?? "" }),
   });
   const clusterKeyOf = useMemo(
     () => new Map(clusterKeyGroups.map((group) => [group.key, group.title ?? ""])),
@@ -168,7 +183,12 @@ export function useSidebarList({ settings, clusterProjects, recents, keyMatches 
   );
   // A cluster keeps its own order and Recents its recency; All lays the user's order over names.
   const groups: ListGroup[] = useMemo(() => {
-    let ordered: ListGroup[] = projectGroups.map((group) => ({ key: group.key, title: group.title ?? "", items: group.items }));
+    let ordered: ListGroup[] = projectGroups.map((group) => ({
+      key: group.key,
+      title: group.title ?? "",
+      group: grouping.groups.get(group.key) ?? null,
+      items: group.items,
+    }));
     if (recents !== null) {
       ordered.sort((a, b) => (recentOrder.get(a.key) ?? 0) - (recentOrder.get(b.key) ?? 0));
     } else if (clusterProjects === null) {
@@ -181,7 +201,7 @@ export function useSidebarList({ settings, clusterProjects, recents, keyMatches 
       });
     }
     return ordered;
-  }, [projectGroups, recents, recentOrder, clusterProjects, settings.projectOrder, settings.sort, settings.workspaceOrderByProject]);
+  }, [projectGroups, grouping, recents, recentOrder, clusterProjects, settings.projectOrder, settings.sort, settings.workspaceOrderByProject]);
 
   // Pinned workspaces leave their project for the section on top, which follows the same filters.
   // Most recently pinned first, with the order the user dragged them into laid over it.
@@ -208,6 +228,7 @@ export function useSidebarList({ settings, clusterProjects, recents, keyMatches 
 
   return {
     hosts,
+    grouping,
     projects,
     resolvedProjectFilters,
     labels,
