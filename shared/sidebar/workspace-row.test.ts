@@ -32,7 +32,13 @@ test("reads the branch, change request and scripts off a descriptor", () => {
 });
 
 test("a descriptor without git or scripts has none of them", () => {
-  assert.deepEqual(selectWorkspaceRowDetail({}), { currentBranch: null, prHint: null, scripts: [] });
+  assert.deepEqual(selectWorkspaceRowDetail({}), {
+    currentBranch: null,
+    prHint: null,
+    scripts: [],
+    isDirty: null,
+    aheadOfOrigin: null,
+  });
 });
 
 test("the title is the name, or the branch when asked and known", () => {

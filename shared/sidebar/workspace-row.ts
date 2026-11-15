@@ -11,7 +11,7 @@ import type { WorkspaceScriptLike } from "./service-summary.ts";
 /** The descriptor fields the row reads that the plugin's workspace snapshot lacks. */
 export interface WorkspaceDescriptorLike {
   forge?: string;
-  gitRuntime?: { currentBranch?: string | null } | null;
+  gitRuntime?: { currentBranch?: string | null; isDirty?: boolean | null; aheadOfOrigin?: number | null } | null;
   githubRuntime?: {
     pullRequest?: {
       url: string;
@@ -30,6 +30,10 @@ export interface WorkspaceRowDetail {
   currentBranch: string | null;
   prHint: PrHint | null;
   scripts: readonly WorkspaceScriptLike[];
+  /** Uncommitted changes, for the archive warning; null when the host has not said. */
+  isDirty: boolean | null;
+  /** Commits not pushed, for the archive warning; null when the host has not said. */
+  aheadOfOrigin: number | null;
 }
 
 const NO_SCRIPTS: readonly WorkspaceScriptLike[] = [];
@@ -47,6 +51,8 @@ export function selectWorkspaceRowDetail(workspace: WorkspaceDescriptorLike): Wo
     currentBranch: normalizeCurrentBranch(workspace.gitRuntime?.currentBranch),
     prHint: selectPrHintFromStatus(workspace.githubRuntime?.pullRequest, workspace.forge),
     scripts: workspace.scripts ?? NO_SCRIPTS,
+    isDirty: workspace.gitRuntime?.isDirty ?? null,
+    aheadOfOrigin: workspace.gitRuntime?.aheadOfOrigin ?? null,
   };
 }
 

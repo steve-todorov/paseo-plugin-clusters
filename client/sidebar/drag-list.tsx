@@ -56,6 +56,9 @@ interface DragHost {
   /** While held, and briefly after, presses do nothing: the hold or drag already used the touch. */
   holdPresses(held: boolean): void;
   pressBlocked(): boolean;
+  /** While a row is renamed in place no drag starts, so selecting its text with the mouse stays a selection. */
+  suspend(suspended: boolean): void;
+  suspended(): boolean;
 }
 
 const DragHostContext = createContext<DragHost | null>(null);
@@ -77,6 +80,7 @@ export function useDragHost() {
   const viewportRef = useRef<{ top: number; height: number } | null>(null);
   const heldRef = useRef(false);
   const blockedUntil = useRef(0);
+  const suspendedRef = useRef(false);
 
   const host = useMemo<DragHost>(
     () => ({
@@ -103,6 +107,10 @@ export function useDragHost() {
         if (!held) blockedUntil.current = Date.now() + PRESS_BLOCK_MS;
       },
       pressBlocked: () => heldRef.current || Date.now() < blockedUntil.current,
+      suspend: (suspended) => {
+        suspendedRef.current = suspended;
+      },
+      suspended: () => suspendedRef.current,
     }),
     [],
   );
@@ -123,6 +131,16 @@ export function useDragHost() {
   };
   const frameProps = { ref: frameRef, collapsable: false, style: { flex: 1 } };
   return { host, frameProps, scrollProps };
+}
+
+/** Stops drags from starting while `suspended`, for a row being renamed in place. */
+export function useSuspendDrag(suspended: boolean) {
+  const host = useContext(DragHostContext);
+  useEffect(() => {
+    if (!host || !suspended) return;
+    host.suspend(true);
+    return () => host.suspend(false);
+  }, [host, suspended]);
 }
 
 /** Wraps a row's press so the press a hold or drag leaves behind does not open or toggle anything. */
@@ -346,7 +364,7 @@ export function DragList<T>({
     const responder = PanResponder.create({
       // Watches every press on the row without taking it, so a plain tap still reaches the row.
       onStartShouldSetPanResponderCapture: (event) => {
-        if (!latest.current.enabled || gesture.current.dragging) return false;
+        if (!latest.current.enabled || gesture.current.dragging || latest.current.host?.suspended()) return false;
         clearTimer();
         const point = pointOf(event);
         const type = (event.nativeEvent as { type?: string }).type ?? "";

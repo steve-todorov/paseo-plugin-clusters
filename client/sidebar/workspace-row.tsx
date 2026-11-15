@@ -1,19 +1,21 @@
 import { type PluginSidebarViewProps, type WorkspaceRef, useWorkspace } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/ui";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
+import { inlineRenameAfterTitle } from "../../shared/sidebar/workspace-actions";
 import type { HostBadgeModel } from "../../shared/sidebar/host-badges";
 import { selectWorkspaceServiceSummary } from "../../shared/sidebar/service-summary";
 import { normalizeCurrentBranch, resolveWorkspaceTitle } from "../../shared/sidebar/workspace-row";
 import { useWorkspaceDetail } from "../workspace-details";
-import { useGuardedPress } from "./drag-list";
+import { useGuardedPress, useSuspendDrag } from "./drag-list";
 import { useWorkspaceLabels } from "./labels";
 import { WorkspaceMetaRow } from "./meta-row";
 import { useSidebarPreferences } from "./preferences";
 import { ProjectStatusIndicator, projectColorKey } from "./project-icon";
 import { StatusRing } from "./status-ring";
 import { LINE, ROW_HEIGHT, type Theme, draggingRowStyle, palette } from "./theme";
-import { WorkspaceTrailing } from "./trailing";
+import { InlineTitleField, WorkspaceTrailingSlot } from "./row-actions";
+import { useWorkspaceActions } from "./workspace-actions";
 
 /*
  * A workspace row of Paseo's default sidebar (components/sidebar-workspace-list.tsx and
@@ -56,7 +58,6 @@ export function WorkspaceRow({
   const w = useWorkspace(reference, (item) => ({
     name: item.name,
     indicator: item.indicator,
-    kind: item.kind,
     branch: item.branch,
     labels: item.labels,
     diffStat: item.diffStat,
@@ -64,6 +65,8 @@ export function WorkspaceRow({
     project: item.project,
     projectName: item.projectDisplayName,
     projectId: item.projectId,
+    title: item.title,
+    kind: item.kind,
   }));
   // Change request, checks and services are not in the plugin snapshot; they come from the host's
   // own workspace directory and fill in once it has listed this workspace.
@@ -72,18 +75,30 @@ export function WorkspaceRow({
   const hover = useHover();
   const labels = useWorkspaceLabels(reference.hostId, w?.labels);
   const guarded = useGuardedPress();
+  const actions = useWorkspaceActions();
+  const session = actions?.rename?.key === reference.key ? actions.rename : null;
+  // While renamed in place the row stops pressing, hovering and dragging, as Paseo's does.
+  const editing = session !== null;
+  useSuspendDrag(editing);
+  const currentTitle = w?.title ?? null;
+  useEffect(() => {
+    if (!session || !actions) return;
+    const next = inlineRenameAfterTitle(session, currentTitle);
+    if (next !== session) actions.setInlineRename(next);
+  }, [session, currentTitle, actions]);
   if (!w) return null;
   const c = theme.colors;
   const colors = palette(theme);
   const currentBranch = detail ? detail.currentBranch : normalizeCurrentBranch(w.branch);
   const title = resolveWorkspaceTitle({ workspace: { name: w.name, currentBranch }, titleSource });
-  const fill = selected ? colors.selected : hover.hovered ? colors.hover : null;
+  const hovered = hover.hovered && !editing;
+  const fill = selected ? colors.selected : hovered ? colors.hover : null;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected }}
       accessibilityLabel={title}
-      onPress={guarded(() => navigation.openWorkspace(reference))}
+      onPress={editing ? undefined : guarded(() => navigation.openWorkspace(reference))}
       onHoverIn={hover.onHoverIn}
       onHoverOut={hover.onHoverOut}
       style={({ pressed }) => ({
@@ -116,14 +131,36 @@ export function WorkspaceRow({
         )}
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
-            <Text
-              numberOfLines={1}
-              style={{ flex: 1, minWidth: 0, color: c.foreground, fontSize: 14, fontWeight: "400", lineHeight: LINE, opacity: hover.hovered ? 1 : 0.76 }}
-            >
-              {title}
-            </Text>
+            {session && actions ? (
+              <InlineTitleField
+                key={session.key}
+                initialValue={session.initialValue}
+                placeholder={w.name}
+                readOnly={session.phase !== "editing"}
+                theme={theme}
+                onCommit={(text) => actions.commitInlineRename(reference, text, currentTitle)}
+                onCancel={actions.cancelInlineRename}
+              />
+            ) : (
+              <Text
+                numberOfLines={1}
+                style={{ flex: 1, minWidth: 0, color: c.foreground, fontSize: 14, fontWeight: "400", lineHeight: LINE, opacity: hovered ? 1 : 0.76 }}
+              >
+                {title}
+              </Text>
+            )}
             <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, flexShrink: 0 }}>
-              <WorkspaceTrailing workspace={w} trailing={trailing} theme={theme} now={now} />
+              <WorkspaceTrailingSlot
+                reference={reference}
+                workspace={w}
+                detail={detail}
+                trailing={trailing}
+                theme={theme}
+                now={now}
+                hovered={hovered}
+                backdrop={fill}
+                actions={editing ? null : actions}
+              />
             </View>
           </View>
           <WorkspaceMetaRow
