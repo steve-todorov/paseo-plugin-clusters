@@ -343,3 +343,22 @@ test("a sidebar project key matches the workspaces of that project only", () => 
   assert.equal(keyMatches("remote:github.com/acme/app", remote), true);
   assert.equal(keyMatches("remote:github.com/acme/other", remote), false);
 });
+
+test("local keys stored as remote:host: read back as host: keys, order kept and no duplicates", async () => {
+  const memory = new Map<string, string>();
+  setPersistence({ read: (key) => memory.get(key) ?? null, write: (key, value) => void memory.set(key, value) });
+  const projects = ["remote:github.com/a/b", "remote:host:srv_1:/home/me/slides", "host:srv_1:/home/me/slides", "remote:host:srv_1:/home/me/x"];
+  const daemon = fakeDaemon("mine", {
+    clusters: [{ id: "c", name: "c", color: "#3b82f6", projects }],
+    recentRank: { "remote:host:srv_1:/home/me/slides": 5, "host:srv_1:/home/me/slides": 9 },
+    recentHidden: { "remote:host:srv_1:/home/me/x": 3 },
+    revision: 2,
+  });
+  const handle = startDaemon(daemon.sync, { pollMs: 0 });
+  await settle();
+  await pull(handle);
+  const state = getState(handle);
+  assert.deepEqual(state.clusters[0]?.projects, ["remote:github.com/a/b", "host:srv_1:/home/me/slides", "host:srv_1:/home/me/x"]);
+  assert.deepEqual(state.recentRank, { "host:srv_1:/home/me/slides": 9 });
+  assert.deepEqual(state.recentHidden, { "host:srv_1:/home/me/x": 3 });
+});

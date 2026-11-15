@@ -15,6 +15,7 @@ import { StatusSection } from "./sidebar/status-section";
 import { type Theme, palette } from "./sidebar/theme";
 import { useSidebarList } from "./sidebar/use-sidebar-list";
 import { WorkspaceActionsProvider, useWorkspaceActionsHost } from "./sidebar/workspace-actions";
+import { useClusterKeyMatcher } from "./project-index";
 import { WorkspaceDetailsProvider, useWorkspaceDetailsSource } from "./workspace-details";
 import {
   ALL_ID,
@@ -24,7 +25,6 @@ import {
   clusterIcon,
   getActive,
   getState,
-  keyMatches,
   mergedClusters,
   normalizeRecentHours,
   reorderClusterProjects,
@@ -78,6 +78,8 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
   const recentHidden = state.recentHidden;
 
   const { settings, ready, update } = useStoredSidebarSettings();
+  // Cluster keys are sidebar project keys; workspaces are matched to them through each host's projects.
+  const keyMatches = useClusterKeyMatcher();
   const list = useSidebarList({
     settings,
     clusterProjects: cluster?.projects ?? null,

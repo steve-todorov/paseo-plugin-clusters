@@ -33,6 +33,7 @@ import {
   t,
 } from "./web";
 import { ClusterForm, type ClusterDraft } from "./cluster-form";
+import { sidebarKeyOf } from "../shared/project-keys";
 
 const ALL_TAB = "__all__";
 const NO_HOSTS: readonly PluginHostSummary[] = [];
@@ -62,13 +63,6 @@ function newest(versions: (string | null | undefined)[]): string | null {
 }
 /** Local to this screen: the projects no cluster holds yet. */
 const UNASSIGNED_TAB = "__unassigned__";
-
-/** The sidebar key for a project, matching the one the desktop sidebar exposes. */
-function projectKey(serverId: string, projectId: string): string {
-  const isLocalPath = /^[a-z]:[\\/]/i.test(projectId) || projectId.startsWith("/");
-  if (isLocalPath) return `host:${serverId}:${projectId.toLowerCase()}`;
-  return `remote:${projectId.replace(/^remote:/, "")}`;
-}
 
 /**
  * The Clusters screen. It shows the clusters of every connected daemon, each on its own and named
@@ -103,7 +97,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     queryFn: async () => {
       const { projects: entries } = await paseo.projects.list();
       return entries.map((project) => ({
-        key: projectKey(host.id, project.projectKey ?? project.projectId),
+        key: sidebarKeyOf(host.id, project),
         label: project.projectCustomName || project.projectDisplayName,
       }));
     },

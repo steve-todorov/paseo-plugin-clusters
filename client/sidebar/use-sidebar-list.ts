@@ -13,6 +13,7 @@ import { byPinnedAtDesc } from "../../shared/sidebar/pinned";
 import type { SidebarSettings } from "../../shared/sidebar/preferences";
 import { type StatusBucket, type StatusRowLike, compareStatusRows, orderStatusGroups } from "../../shared/sidebar/status-groups";
 import { type SortableWorkspace, applyStoredOrdering, compareProjectNames, workspaceComparator } from "../../shared/sidebar/workspace-sort";
+import type { WorkspaceKeyFields } from "../../shared/project-keys";
 import type { MenuProject } from "./display-menu/pages";
 import { useMergedLabelCatalog } from "./labels";
 
@@ -74,8 +75,9 @@ export interface SidebarListInput {
   /** The selected cluster's project keys, in its order; null outside a cluster. */
   clusterProjects: readonly string[] | null;
   /** Recents' rules while it is selected; null otherwise. */
-  recents: { cutoff: number; unlimited: boolean; hiddenAt: (w: { projectRootPath: string; projectId: string }) => number | undefined } | null;
-  keyMatches: (key: string, w: { projectRootPath: string; projectId: string }) => boolean;
+  recents: { cutoff: number; unlimited: boolean; hiddenAt: (w: WorkspaceKeyFields) => number | undefined } | null;
+  /** Whether a cluster key names a workspace's project. */
+  keyMatches: (key: string, w: WorkspaceKeyFields) => boolean;
 }
 
 export function useSidebarList({ settings, clusterProjects, recents, keyMatches }: SidebarListInput) {

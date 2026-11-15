@@ -12,6 +12,8 @@
  * and shown on its own, namesakes included; a project of any daemon may be filed into any cluster.
  */
 
+import { keyMatchesByText, normalizeStoredKey } from "../shared/project-keys.ts";
+
 export interface Cluster {
   id: string;
   name: string;
@@ -88,9 +90,7 @@ export function normalizeRecentHours(hours: number | undefined): number {
  * carry the host and the lowercased path, remote ones the project id.
  */
 export function keyMatches(key: string, w: { projectRootPath: string; projectId: string }): boolean {
-  if (key.startsWith("remote:")) return key === `remote:${w.projectId.replace(/^remote:/, "")}`;
-  const path = key.replace(/^host:[^:]+:/, "");
-  return path === w.projectRootPath.toLowerCase() || path === w.projectId.toLowerCase();
+  return keyMatchesByText(key, w);
 }
 
 /** One press of the stepper. Below 1 h comes "no limit"; stepping up from there gives 1 h again. */
@@ -161,12 +161,24 @@ export function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/** Each project in one cluster at most, keys stored by older versions read as they were meant. */
 function dedupe(clusters: Cluster[]): Cluster[] {
   const seen = new Set<string>();
   return clusters.map((cluster) => ({
     ...cluster,
-    projects: cluster.projects.filter((key) => !seen.has(key) && (seen.add(key), true)),
+    projects: cluster.projects.map(normalizeStoredKey).filter((key) => !seen.has(key) && (seen.add(key), true)),
   }));
+}
+
+/** A key-to-mark record with older keys read as they were meant; the higher mark wins a clash. */
+function normalizeKeys(record: Record<string, number> | undefined): Record<string, number> | undefined {
+  if (!record || !Object.keys(record).some((key) => normalizeStoredKey(key) !== key)) return record;
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(record)) {
+    const next = normalizeStoredKey(key);
+    out[next] = Math.max(out[next] ?? value, value);
+  }
+  return out;
 }
 
 function cacheKey(serverId: string): string {
@@ -178,7 +190,15 @@ function loadCache(serverId: string): ClusterState {
   try {
     const raw = persistence?.read(cacheKey(serverId)) ?? null;
     const parsed = JSON.parse(raw ?? "null") as ClusterState | null;
-    if (parsed && Array.isArray(parsed.clusters)) return withRanks({ ...parsed, clusters: dedupe(parsed.clusters) });
+    if (parsed && Array.isArray(parsed.clusters)) {
+      return withRanks({
+        ...parsed,
+        clusters: dedupe(parsed.clusters),
+        recentOrder: parsed.recentOrder?.map(normalizeStoredKey),
+        recentRank: normalizeKeys(parsed.recentRank),
+        recentHidden: normalizeKeys(parsed.recentHidden),
+      });
+    }
   } catch {
     // Corrupt storage falls back to an empty state.
   }
@@ -250,7 +270,13 @@ function mergeHidden(
 }
 
 /** Takes the daemon's copy: it is the source of truth for its own clusters. */
-function adopt(entry: Entry, incoming: SharedState): void {
+function adopt(entry: Entry, raw: SharedState): void {
+  const incoming: SharedState = {
+    ...raw,
+    recentOrder: raw.recentOrder?.map(normalizeStoredKey),
+    recentRank: normalizeKeys(raw.recentRank),
+    recentHidden: normalizeKeys(raw.recentHidden),
+  };
   const shared = { ...incoming, recentHidden: mergeHidden(entry.state.recentHidden, incoming.recentHidden) };
   if (shared.revision <= entry.revision && sameShared(entry.state, { ...entry.state, ...shared })) return;
   if (shared.revision < entry.revision) return;

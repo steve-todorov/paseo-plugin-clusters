@@ -35,9 +35,14 @@ function recordAgent(daemon: Daemon, agent: AgentLike): void {
   if (agent.workspaceId && at) touchWorkspace(daemon, agent.workspaceId, at);
 }
 
-/** The sidebar keys this daemon owns. Local projects are matched by path, the rest by key. */
+/**
+ * The sidebar keys this daemon owns. A project's own key is the sidebar's (`host:…` or `remote:…`)
+ * and is used as is; without one, local projects are matched by path and the rest by key.
+ */
 function sidebarKey(project: { projectKey?: string | null; projectId: string }): string | null {
-  const id = project.projectKey ?? project.projectId;
+  const own = project.projectKey?.trim();
+  if (own && (own.startsWith("host:") || own.startsWith("remote:"))) return own;
+  const id = own || project.projectId;
   const isLocalPath = /^[a-z]:[\\/]/i.test(id) || id.startsWith("/");
   return isLocalPath ? null : `remote:${id.replace(/^remote:/, "")}`;
 }
