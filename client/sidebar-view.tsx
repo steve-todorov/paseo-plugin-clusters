@@ -22,6 +22,7 @@ import {
   type Daemon,
   type MergedCluster,
   NO_RECENT_LIMIT,
+  claimSidebarView,
   clusterIcon,
   getActive,
   getState,
@@ -55,6 +56,8 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
   const clusters = useSyncExternalStore(subscribe, mergedClusters);
   const snapshot = useCallback(() => getState(daemon), [daemon]);
   const state = useSyncExternalStore(subscribe, snapshot);
+  // While this view is on screen, the circle bar injected into the Default view stays out.
+  useEffect(() => claimSidebarView(), []);
   // Recents and the timestamps age by the clock, not only by data changes.
   const [now, setNow] = useState(Date.now);
   useEffect(() => {

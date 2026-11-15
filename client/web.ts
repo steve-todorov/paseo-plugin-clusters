@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import { inRecents } from "../shared/activity";
 import { LANGUAGES, type Language, type Strings } from "../shared/i18n";
+import { createPresence } from "../shared/presence";
 import { MAX_IMAGE_LENGTH } from "../shared/storage";
 import * as store from "./store";
 import type { Cluster, ClusterState, Daemon, DaemonSync, MergedCluster } from "./store";
@@ -427,6 +428,8 @@ function syncRecents(groups: { key: string }[], latestByKey: Map<string, number>
 }
 
 function applyFilter(): void {
+  // The Clusters view replaces Paseo's list; there is nothing here to filter.
+  if (sidebarView.held()) return;
   const groups = projectGroups();
   adoptNewProjects(groups);
   const active = store.getActive();
@@ -1386,6 +1389,22 @@ export function startSidebarClusters(daemon: Daemon, onAdd: () => void): () => v
 
 let sidebarUsers = 0;
 let stopSidebar: (() => void) | null = null;
+/** Redraws the injected bar now; set while this copy draws it. */
+let refreshSidebar: (() => void) | null = null;
+
+/**
+ * Whether the Clusters sidebar view is on screen. Paseo does not tell plugins which sidebar view is
+ * selected, so the view claims this while mounted. It draws its own circles, so the injected bar
+ * steps aside until the user goes back to the Default view.
+ */
+const sidebarView = createPresence(() => refreshSidebar?.());
+
+/** Marks the Clusters sidebar view as mounted; call the result when it unmounts. */
+export function claimSidebarView(): () => void {
+  const other = otherOwner();
+  if (other) return other.claimSidebarView();
+  return sidebarView.claim();
+}
 /** How to open the Clusters screen of each connected daemon. */
 const openers = new Map<Daemon, () => void>();
 
@@ -1476,8 +1495,16 @@ function sidebarSlot(): { [SIDEBAR_KEY]?: Owner | null } {
 
 function runSidebar(): () => void {
   let scheduled = false;
+  // Whether the bar was taken out for the Clusters view, so Paseo's elements are restored once.
+  let stepped = false;
   const sync = () => {
     scheduled = false;
+    if (sidebarView.held()) {
+      if (!stepped) restoreSidebar();
+      stepped = true;
+      return;
+    }
+    stepped = false;
     mountBar(openCurrent);
     applyFilter();
   };
@@ -1489,6 +1516,7 @@ function runSidebar(): () => void {
   const observer = new MutationObserver(schedule);
   observer.observe(document.body, { childList: true, subtree: true });
   const unsubscribe = subscribe(() => {
+    if (sidebarView.held()) return;
     const bar = document.querySelector(`#${BAR_ID}`);
     if (bar) renderBar(bar, openCurrent);
     applyFilter();
@@ -1500,30 +1528,35 @@ function runSidebar(): () => void {
   const stopDrag = startProjectDrag();
   const stopClusterDrag = startClusterDrag();
   const tick = setInterval(scheduleFilter, 60_000);
+  refreshSidebar = sync;
   return () => {
+    if (refreshSidebar === sync) refreshSidebar = null;
     stopHide();
     stopDrag();
     stopClusterDrag();
     clearInterval(tick);
     observer.disconnect();
     unsubscribe();
-    document.querySelector(`#${BAR_ID}`)?.remove();
-    tooltip?.remove();
-    const preferences = preferencesTarget();
-    if (preferences) Object.assign(preferences.style, { visibility: "", pointerEvents: "" });
-    dropLine?.remove();
-    for (const button of Array.from(document.querySelectorAll(`[${HIDE_ATTR}]`))) button.remove();
-    document.querySelector(`#${HIDE_STYLE_ID}`)?.remove();
-    for (const { group } of projectGroups()) {
-      Object.assign(group.style, { display: "", order: "" });
-      for (const row of Array.from(group.querySelectorAll(`[data-testid^="${WORKSPACE_PREFIX}"]`))) {
-        Object.assign(workspaceItem(row).style, { display: "", order: "" });
-      }
-    }
+    restoreSidebar();
   };
 }
 
-
+/** Takes the bar out and gives Paseo's own sidebar elements back their styles. */
+function restoreSidebar(): void {
+  document.querySelector(`#${BAR_ID}`)?.remove();
+  tooltip?.remove();
+  const preferences = preferencesTarget();
+  if (preferences) Object.assign(preferences.style, { visibility: "", pointerEvents: "" });
+  dropLine?.remove();
+  for (const button of Array.from(document.querySelectorAll(`[${HIDE_ATTR}]`))) button.remove();
+  document.querySelector(`#${HIDE_STYLE_ID}`)?.remove();
+  for (const { group } of projectGroups()) {
+    Object.assign(group.style, { display: "", order: "" });
+    for (const row of Array.from(group.querySelectorAll(`[data-testid^="${WORKSPACE_PREFIX}"]`))) {
+      Object.assign(workspaceItem(row).style, { display: "", order: "" });
+    }
+  }
+}
 
 /**
  * Paseo loads one copy of this plugin per connected daemon, all in the same page. The first copy
@@ -1560,6 +1593,7 @@ interface Owner {
   registerProjectRoots: typeof registerProjectRoots;
   registerProjectHistory: typeof registerProjectHistory;
   hasLiveWorkspaces: typeof hasLiveWorkspaces;
+  claimSidebarView: typeof claimSidebarView;
 }
 
 /**
@@ -1567,7 +1601,7 @@ interface Owner {
  * the same page. An older copy owning the slot cannot answer what a newer one asks of it, so they
  * take separate slots and each runs on its own until every daemon is on the same version.
  */
-const OWNER_KEY = "__paseoClustersOwner:11";
+const OWNER_KEY = "__paseoClustersOwner:12";
 let self: Owner | null = null;
 
 function ownerSlot(): { [OWNER_KEY]?: Owner } {
@@ -1606,6 +1640,7 @@ function otherOwner(): Owner | null {
     registerProjectRoots,
     registerProjectHistory,
     hasLiveWorkspaces,
+    claimSidebarView,
     startSidebarClusters,
     claimScreen,
   };
