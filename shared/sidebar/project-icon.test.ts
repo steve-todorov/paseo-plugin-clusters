@@ -60,3 +60,9 @@ test("the corner badge: alert for needs_input, a dot for failed, attention and r
   assert.equal(getProjectStatusBadgeContent("done"), null);
   assert.equal(getProjectStatusBadgeContent(null), null);
 });
+
+test("project badge follows the status slot priority with progress", () => {
+  assert.deepEqual(getProjectStatusBadgeContent("question"), { kind: "question" });
+  assert.deepEqual(getProjectStatusBadgeContent("stuck"), { kind: "dot", bucket: "stuck" });
+  assert.equal(getProjectStatusBadgeContent("idle"), null);
+});

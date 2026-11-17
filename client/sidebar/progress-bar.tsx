@@ -5,7 +5,7 @@ import { t } from "../web";
 import { type Theme, palette } from "./theme";
 
 /*
- * The row's Progress underline and title pills (approved mock "Option 3: segmented underline").
+ * The row's Progress underline and "stuck" pill (approved mock "Option 3: segmented underline").
  * Segment colours are the Progress panel's (PP 1.14.7 client/panel.tsx `Segment`): done in the
  * accent, working in the accent at 45%, blocked or stuck in danger, the rest grey.
  */
@@ -58,30 +58,20 @@ export function ProgressUnderline({
   );
 }
 
-/** The amber "?" and red "stuck" pills after the title; null when neither shows. */
+/**
+ * The red "stuck" pill after the title; null when the run is not stuck. An open question shows in
+ * the status slot instead (`statusSlotOf`).
+ */
 export function ProgressPills({ progress, theme }: { progress: RowProgress | null; theme: Theme }) {
-  if (!progress || (progress.questions === 0 && !progress.stuck)) return null;
+  if (!progress?.stuck) return null;
   const colors = palette(theme);
-  const s = t();
-  const pill = { height: 16, marginTop: 2, borderRadius: 8, flexDirection: "row", alignItems: "center", flexShrink: 0 } as const;
   return (
-    <View pointerEvents="none" style={{ flexDirection: "row", gap: 4, flexShrink: 0 }}>
-      {progress.questions > 0 ? (
-        <View
-          accessibilityLabel={s.progressQuestions(progress.questions)}
-          style={{ ...pill, minWidth: 16, paddingHorizontal: 4, justifyContent: "center", backgroundColor: `${colors.warning}26` }}
-        >
-          <Text style={{ color: colors.warning, fontSize: 11, fontWeight: "600", lineHeight: 16 }}>
-            {progress.questions > 1 ? `? ${progress.questions}` : "?"}
-          </Text>
-        </View>
-      ) : null}
-      {progress.stuck ? (
-        <View style={{ ...pill, gap: 3, paddingHorizontal: 5, backgroundColor: `${colors.danger}24` }}>
-          <Icon name="OctagonAlert" size={11} color={colors.danger} />
-          <Text style={{ color: colors.danger, fontSize: 11, fontWeight: "600", lineHeight: 16 }}>{s.progressStuck}</Text>
-        </View>
-      ) : null}
+    <View
+      pointerEvents="none"
+      style={{ height: 16, marginTop: 2, borderRadius: 8, flexDirection: "row", alignItems: "center", flexShrink: 0, gap: 3, paddingHorizontal: 5, backgroundColor: `${colors.danger}24` }}
+    >
+      <Icon name="OctagonAlert" size={11} color={colors.danger} />
+      <Text style={{ color: colors.danger, fontSize: 11, fontWeight: "600", lineHeight: 16 }}>{t().progressStuck}</Text>
     </View>
   );
 }

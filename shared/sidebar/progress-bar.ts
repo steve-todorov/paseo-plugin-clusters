@@ -4,8 +4,8 @@ import type { ProgressSummary, ProgressTicketSummary } from "../progress.ts";
  * The segmented underline of a workspace row (approved mock "Option 3"): one segment per ticket of
  * the latest run, coloured as the Progress panel's bar (PP 1.14.7 client/panel.tsx `Segment`: done
  * and working in the accent, working faded; blocked and not waiting in danger; the rest grey), with
- * stuck tickets (overdue, manual) red too. An amber "?" pill counts open questions; a red "stuck"
- * pill marks a stuck run.
+ * stuck tickets (overdue, manual) red too. A red "stuck" pill marks a stuck run; open questions
+ * and a stuck run also take the status slot (`status-slot.ts`).
  */
 
 export type SegmentTone = "done" | "working" | "stuck" | "todo";
@@ -18,7 +18,7 @@ export interface ProgressSegment {
 
 export interface RowProgress {
   segments: ProgressSegment[];
-  /** Open questions; 0 shows no "?" pill. */
+  /** Open questions; 0 shows no "?" in the status slot. */
   questions: number;
   stuck: boolean;
 }

@@ -13,7 +13,8 @@ import {
   selectProjectIconPicture,
 } from "../../shared/sidebar/project-icon";
 import { useHostEndpoint } from "../host-rpc";
-import { StatusRing } from "./status-ring";
+import { t } from "../web";
+import { CircleGlyph, StatusRing } from "./status-ring";
 import { LINE, type Theme, palette } from "./theme";
 
 /*
@@ -102,22 +103,27 @@ export function ProjectIcon({
 }
 
 /**
- * The project icon as a row's leading visual, with the row's status in a corner badge: an alert for
- * needs_input, a dot for failed, attention and running, nothing when done. `backdrop` is the row's
- * current fill, which the badge is cut out of.
+ * The project icon as a row's leading visual, with the row's status slot (`statusSlotOf`) in a
+ * corner badge: an alert for needs_input, a "?" for an open Progress question, a dot for failed,
+ * stuck, attention and running, nothing when idle. `backdrop` is the row's current fill, which the
+ * badge is cut out of.
  */
 export function ProjectStatusIndicator({
   project,
   displayName,
   colorKey,
   indicator,
+  questions = 0,
   backdrop,
   theme,
 }: {
   project: ProjectRef;
   displayName: string;
   colorKey: string;
+  /** An agent status or a status slot. */
   indicator: string | null;
+  /** Open Progress questions, for the "?" badge's label. */
+  questions?: number;
   backdrop: string;
   theme: Theme;
 }) {
@@ -132,7 +138,8 @@ export function ProjectStatusIndicator({
       </View>
     );
   } else if (badge) {
-    const dotColor = badge.kind === "alert" ? colors.warning : badge.bucket === "failed" ? colors.danger : colors.success;
+    const dotColor =
+      badge.kind !== "dot" ? colors.warning : badge.bucket === "failed" || badge.bucket === "stuck" ? colors.danger : colors.success;
     badgeView = (
       <View
         style={{
@@ -148,11 +155,13 @@ export function ProjectStatusIndicator({
           backgroundColor: backdrop,
         }}
       >
-        {badge.kind === "alert" ? (
-          // The app's filled CircleAlert, which the plugin `Icon` cannot fill.
-          <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: dotColor, alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ color: theme.colors.surface0, fontSize: 9, fontWeight: "700", lineHeight: 12 }}>!</Text>
-          </View>
+        {badge.kind !== "dot" ? (
+          <CircleGlyph
+            glyph={badge.kind === "alert" ? "!" : "?"}
+            color={dotColor}
+            ink={theme.colors.surface0}
+            label={badge.kind === "question" ? t().progressQuestions(questions) : undefined}
+          />
         ) : (
           <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: dotColor }} />
         )}

@@ -17,7 +17,9 @@ import { useRowProgress } from "./progress";
 import { type RowProgress, showsProgressBar } from "../../shared/sidebar/progress-bar";
 import { ProjectStatusIndicator } from "./project-icon";
 import { leadingProjectOf, useProjectGrouping } from "./project-grouping";
-import { StatusRing } from "./status-ring";
+import { CircleGlyph, StatusRing } from "./status-ring";
+import { type StatusSlot, statusSlotOf } from "../../shared/sidebar/status-slot";
+import { t } from "../web";
 import { LINE, ROW_HEIGHT, type Theme, draggingRowStyle, palette } from "./theme";
 import { InlineTitleField, WorkspaceTrailingSlot } from "./row-actions";
 import { useWorkspaceActions } from "./workspace-actions";
@@ -142,7 +144,10 @@ export function WorkspaceRow({
   const fill = selected ? colors.selected : hovered ? colors.hover : null;
   const leading = leadingProjectOf(grouping, { ...w, hostId: reference.hostId }, leadingName);
   const pills = <ProgressPills progress={progress} theme={theme} />;
-  const hasPills = progress !== null && (progress.questions > 0 || progress.stuck);
+  const hasPills = progress?.stuck === true;
+  // Agent status and Progress run share the slot, most urgent first; a folded parent passes its roll-ups.
+  const slot = statusSlotOf(statusOverride ?? w.indicator, progress);
+  const questions = progress?.questions ?? 0;
   // No bar (and no extra height) under 2 tickets; a folded parent counts its whole subtree.
   const hasBar = showsProgressBar(progress);
   // The chevron and the pills sit right after the title; the title then only takes its own width.
@@ -182,13 +187,14 @@ export function WorkspaceRow({
             project={leading.project}
             displayName={leading.name}
             colorKey={leading.colorKey}
-            indicator={w.indicator}
+            indicator={slot}
+            questions={questions}
             // The sidebar's own ground is not in the plugin theme; the base surface stands in.
             backdrop={fill ?? c.surface0}
             theme={theme}
           />
         ) : (
-          <StatusIndicator indicator={statusOverride ?? w.indicator} kind={w.kind} theme={theme} />
+          <StatusIndicator slot={slot} questions={questions} kind={w.kind} theme={theme} />
         )}
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
@@ -257,20 +263,20 @@ export function WorkspaceRow({
   );
 }
 
-/** The 16×20 status slot of a workspace row, per status, as Paseo draws it. */
-export function StatusIndicator({ indicator, kind, theme }: { indicator: string; kind: string; theme: Theme }) {
+/** The 16×20 status slot of a workspace row, per status, as Paseo draws it, plus the Progress "?" and stuck dot. */
+export function StatusIndicator({ slot, questions, kind, theme }: { slot: StatusSlot; questions: number; kind: string; theme: Theme }) {
   const colors = palette(theme);
-  const dot = (color: string, opacity = 1) => <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color, opacity }} />;
+  const dot = (color: string, opacity = 1, label?: string) => (
+    <View accessibilityLabel={label} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color, opacity }} />
+  );
   let content: ReactNode;
-  if (indicator === "running") content = <StatusRing color={colors.running} />;
-  else if (indicator === "needs_input") {
-    content = (
-      <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: colors.warning, alignItems: "center", justifyContent: "center" }}>
-        <Text style={{ color: theme.colors.surface0, fontSize: 9, fontWeight: "700", lineHeight: 12 }}>!</Text>
-      </View>
-    );
-  } else if (indicator === "attention") content = dot(colors.success);
-  else if (indicator === "failed") {
+  if (slot === "running") content = <StatusRing color={colors.running} />;
+  else if (slot === "needs_input") content = <CircleGlyph glyph="!" color={colors.warning} ink={theme.colors.surface0} />;
+  else if (slot === "question") {
+    content = <CircleGlyph glyph="?" color={colors.warning} ink={theme.colors.surface0} label={t().progressQuestions(questions)} />;
+  } else if (slot === "stuck") content = dot(colors.danger, 1, t().progressStuck);
+  else if (slot === "attention") content = dot(colors.success);
+  else if (slot === "failed") {
     content = (
       <View style={{ width: 14, height: 14 }}>
         <Icon

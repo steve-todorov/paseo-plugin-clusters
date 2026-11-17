@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Animated, Easing, Platform, View } from "react-native";
+import { Animated, Easing, Platform, Text, View } from "react-native";
 
 /*
  * The spinning ring Paseo shows on a running workspace (components/status-ring, v0.16): a 6pt dot,
@@ -22,6 +22,22 @@ export function StatusRing({ color, backdrop }: { color: string; backdrop?: stri
       <View style={[ring, { borderColor: color, opacity: 0.3 }]} />
       <Animated.View style={[ring, { borderColor: "transparent", borderTopColor: color, opacity: 0.9, transform: [{ rotate }] }]} />
       <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+    </View>
+  );
+}
+
+/**
+ * A 12pt filled circle with a dark glyph: Paseo's needs_input alert ("!", the app's filled
+ * CircleAlert, which the plugin `Icon` cannot fill), and the same shape for an open Progress
+ * question ("?").
+ */
+export function CircleGlyph({ glyph, color, ink, label }: { glyph: "!" | "?"; color: string; ink: string; label?: string }) {
+  return (
+    <View
+      accessibilityLabel={label}
+      style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: color, alignItems: "center", justifyContent: "center" }}
+    >
+      <Text style={{ color: ink, fontSize: 9, fontWeight: "700", lineHeight: 12 }}>{glyph}</Text>
     </View>
   );
 }

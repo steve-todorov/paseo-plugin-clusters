@@ -96,11 +96,19 @@ function decodeUtf8(bytes: Uint8Array): string | null {
   return text;
 }
 
-export type ProjectStatusBadgeContent = { kind: "alert" } | { kind: "dot"; bucket: "failed" | "attention" | "running" };
+export type ProjectStatusBadgeContent =
+  | { kind: "alert" }
+  | { kind: "question" }
+  | { kind: "dot"; bucket: "failed" | "attention" | "running" | "stuck" };
 
-/** The corner badge on a project icon: an alert for needs_input, a dot for three others, else none. */
+/**
+ * The corner badge on a project icon, from an agent status or a status slot (`statusSlotOf`): an
+ * alert for needs_input, a "?" for an open Progress question, a dot for failed, stuck, attention and
+ * running, else none.
+ */
 export function getProjectStatusBadgeContent(indicator: string | null): ProjectStatusBadgeContent | null {
   if (indicator === "needs_input") return { kind: "alert" };
-  if (indicator === "failed" || indicator === "attention" || indicator === "running") return { kind: "dot", bucket: indicator };
+  if (indicator === "question") return { kind: "question" };
+  if (indicator === "failed" || indicator === "attention" || indicator === "running" || indicator === "stuck") return { kind: "dot", bucket: indicator };
   return null;
 }
