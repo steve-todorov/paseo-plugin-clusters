@@ -172,6 +172,9 @@ const en = {
   collapseSubtasks: "Hide nested workspaces",
   nestedCount: (count: number) => (count === 1 ? "1 nested workspace" : `${count} nested workspaces`),
   treeUnavailable: "This host can't keep the workspace tree yet: update the Clusters plugin on it",
+  progressStuck: "stuck",
+  progressQuestions: (count: number) => (count === 1 ? "1 question waiting for you" : `${count} questions waiting for you`),
+  progressTickets: (done: number, total: number) => `Progress: ${done} of ${total} done`,
 };
 
 const es: typeof en = {
@@ -339,6 +342,9 @@ const es: typeof en = {
   collapseSubtasks: "Ocultar espacios de trabajo anidados",
   nestedCount: (count) => (count === 1 ? "1 espacio de trabajo anidado" : `${count} espacios de trabajo anidados`),
   treeUnavailable: "Este host aún no puede guardar el árbol de espacios de trabajo: actualiza allí el plugin Clusters",
+  progressStuck: "atascado",
+  progressQuestions: (count) => (count === 1 ? "1 pregunta te espera" : `${count} preguntas te esperan`),
+  progressTickets: (done, total) => `Progreso: ${done} de ${total} hechas`,
 };
 
 export const LANGUAGES: Record<Language, typeof en> = { en, es };

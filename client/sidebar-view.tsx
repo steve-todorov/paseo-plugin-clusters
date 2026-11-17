@@ -14,6 +14,7 @@ import { PinnedSection } from "./sidebar/pinned-section";
 import { SidebarPreferencesProvider, useStoredSidebarSettings } from "./sidebar/preferences";
 import { ProjectBlock } from "./sidebar/project-block";
 import { ProjectGroupingProvider } from "./sidebar/project-grouping";
+import { ProgressProvider, useProgressSource } from "./sidebar/progress";
 import { StatusSection } from "./sidebar/status-section";
 import { type Theme, palette } from "./sidebar/theme";
 import { useSidebarList } from "./sidebar/use-sidebar-list";
@@ -217,6 +218,8 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
   const label = recent ? strings.recentsTooltip(hours) : (cluster?.name ?? strings.allLabel);
 
   const details = useWorkspaceDetailsSource();
+  // Each workspace's Progress run, polled while this view is mounted.
+  const progress = useProgressSource();
   const preferences: SidebarPreferences = useMemo(
     () => ({
       grouping: settings.grouping,
@@ -314,95 +317,97 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
     <ProjectGroupingProvider value={grouping}>
       <SidebarPreferencesProvider value={preferences}>
         <WorkspaceDetailsProvider value={details}>
-          <WorkspaceActionsProvider value={rowActions.value}>
-            <View
-              ref={rootRef}
-              collapsable={false}
-              style={{ flex: 1 }}
-              onLayout={(event) => setBounds({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
-            >
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ flexGrow: 0 }}
-                contentContainerStyle={{ gap: 8, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 4, alignItems: "center" }}
-              >
-                <Circle theme={theme} label={strings.recentsLabel} active={recent} onPress={() => setActive(null)} background="#dbeafe">
-                  <Icon name="Zap" size={15} color="#3b82f6" />
-                </Circle>
-                {clusters.map((cl) => (
-                  <Circle
-                    key={cl.id}
-                    theme={theme}
-                    label={cl.name}
-                    active={cl.id === selected}
-                    onPress={() => setActive(cl.id)}
-                    background={cl.color}
-                  >
-                    <ClusterFace cluster={cl} />
-                  </Circle>
-                ))}
-                <Circle theme={theme} label={strings.allLabel} active={selected === ALL_ID} onPress={() => setActive(ALL_ID)} background="#e4e4e7">
-                  <Icon name="Layers" size={15} color="#52525b" />
-                </Circle>
-                <Circle theme={theme} label={strings.manageLabel} active={false} onPress={onManage} background="transparent" outlined>
-                  <Icon name="Plus" size={15} color={c.foregroundMuted} />
-                </Circle>
-              </ScrollView>
-              {/* The list's header line, holding the display menu as Paseo's "Workspaces" header does. */}
+          <ProgressProvider value={progress}>
+            <WorkspaceActionsProvider value={rowActions.value}>
               <View
-                onLayout={(event) => setAnchorTop(event.nativeEvent.layout.y + event.nativeEvent.layout.height)}
-                style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 16, paddingRight: 8 }}
+                ref={rootRef}
+                collapsable={false}
+                style={{ flex: 1 }}
+                onLayout={(event) => setBounds({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
               >
-                <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: palette(theme).extraMuted, fontSize: 12 }}>
-                  {label}
-                </Text>
-                <DisplayMenuTrigger theme={theme} onPress={menu.open} />
-              </View>
-              <DragHostProvider value={host}>
-                <View {...frameProps}>
-                  <ScrollView
-                    {...scrollProps}
-                    style={{ flex: 1 }}
-                    contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 2, paddingBottom: 16 }}
-                  >
-                    <PinnedSection
-                      rows={list.pinned}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ flexGrow: 0 }}
+                  contentContainerStyle={{ gap: 8, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 4, alignItems: "center" }}
+                >
+                  <Circle theme={theme} label={strings.recentsLabel} active={recent} onPress={() => setActive(null)} background="#dbeafe">
+                    <Icon name="Zap" size={15} color="#3b82f6" />
+                  </Circle>
+                  {clusters.map((cl) => (
+                    <Circle
+                      key={cl.id}
                       theme={theme}
-                      now={now}
-                      activeKey={activeKey}
-                      navigation={navigation}
-                      hostBadges={hostBadges}
-                      onReorder={ready ? reorderPinned : undefined}
-                    />
-                    {body}
-                    {!list.filterEmpty && list.groups.length === 0 ? (
-                      <Text style={{ color: c.foregroundMuted, fontSize: 14, padding: 8 }}>{strings.noWorkspaces}</Text>
-                    ) : null}
-                  </ScrollView>
+                      label={cl.name}
+                      active={cl.id === selected}
+                      onPress={() => setActive(cl.id)}
+                      background={cl.color}
+                    >
+                      <ClusterFace cluster={cl} />
+                    </Circle>
+                  ))}
+                  <Circle theme={theme} label={strings.allLabel} active={selected === ALL_ID} onPress={() => setActive(ALL_ID)} background="#e4e4e7">
+                    <Icon name="Layers" size={15} color="#52525b" />
+                  </Circle>
+                  <Circle theme={theme} label={strings.manageLabel} active={false} onPress={onManage} background="transparent" outlined>
+                    <Icon name="Plus" size={15} color={c.foregroundMuted} />
+                  </Circle>
+                </ScrollView>
+                {/* The list's header line, holding the display menu as Paseo's "Workspaces" header does. */}
+                <View
+                  onLayout={(event) => setAnchorTop(event.nativeEvent.layout.y + event.nativeEvent.layout.height)}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 16, paddingRight: 8 }}
+                >
+                  <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: palette(theme).extraMuted, fontSize: 12 }}>
+                    {label}
+                  </Text>
+                  <DisplayMenuTrigger theme={theme} onPress={menu.open} />
                 </View>
-              </DragHostProvider>
-              <DisplayMenuSurface
-                menu={menu}
-                model={{
-                  settings,
-                  update,
-                  sortSupported: list.sortSupported,
-                  hosts: list.hosts,
-                  projects: list.projects,
-                  resolvedProjectFilters: list.resolvedProjectFilters,
-                  labels: list.labels,
-                  resolvedLabelFilter: list.resolvedLabelFilter,
-                }}
-                theme={theme}
-                compact={layout.compact}
-                anchorTop={anchorTop}
-                bounds={bounds}
-              />
-              {/* The menu files rows in the tree, which shows in the project grouping only. */}
-              <WorkspaceTreeProvider value={preferences.grouping === "project" ? treeApi : null}>{rowActions.surface}</WorkspaceTreeProvider>
-            </View>
-          </WorkspaceActionsProvider>
+                <DragHostProvider value={host}>
+                  <View {...frameProps}>
+                    <ScrollView
+                      {...scrollProps}
+                      style={{ flex: 1 }}
+                      contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 2, paddingBottom: 16 }}
+                    >
+                      <PinnedSection
+                        rows={list.pinned}
+                        theme={theme}
+                        now={now}
+                        activeKey={activeKey}
+                        navigation={navigation}
+                        hostBadges={hostBadges}
+                        onReorder={ready ? reorderPinned : undefined}
+                      />
+                      {body}
+                      {!list.filterEmpty && list.groups.length === 0 ? (
+                        <Text style={{ color: c.foregroundMuted, fontSize: 14, padding: 8 }}>{strings.noWorkspaces}</Text>
+                      ) : null}
+                    </ScrollView>
+                  </View>
+                </DragHostProvider>
+                <DisplayMenuSurface
+                  menu={menu}
+                  model={{
+                    settings,
+                    update,
+                    sortSupported: list.sortSupported,
+                    hosts: list.hosts,
+                    projects: list.projects,
+                    resolvedProjectFilters: list.resolvedProjectFilters,
+                    labels: list.labels,
+                    resolvedLabelFilter: list.resolvedLabelFilter,
+                  }}
+                  theme={theme}
+                  compact={layout.compact}
+                  anchorTop={anchorTop}
+                  bounds={bounds}
+                />
+                {/* The menu files rows in the tree, which shows in the project grouping only. */}
+                <WorkspaceTreeProvider value={preferences.grouping === "project" ? treeApi : null}>{rowActions.surface}</WorkspaceTreeProvider>
+              </View>
+            </WorkspaceActionsProvider>
+          </ProgressProvider>
         </WorkspaceDetailsProvider>
       </SidebarPreferencesProvider>
     </ProjectGroupingProvider>

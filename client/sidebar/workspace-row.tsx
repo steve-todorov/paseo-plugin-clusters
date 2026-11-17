@@ -12,6 +12,9 @@ import { useGuardedPress, useSuspendDrag } from "./drag-list";
 import { useWorkspaceLabels } from "./labels";
 import { WorkspaceMetaRow } from "./meta-row";
 import { useSidebarPreferences } from "./preferences";
+import { PROGRESS_BAR_SPACE, ProgressPills, ProgressUnderline } from "./progress-bar";
+import { useRowProgress } from "./progress";
+import type { RowProgress } from "../../shared/sidebar/progress-bar";
 import { ProjectStatusIndicator } from "./project-icon";
 import { leadingProjectOf, useProjectGrouping } from "./project-grouping";
 import { StatusRing } from "./status-ring";
@@ -65,6 +68,7 @@ export function WorkspaceRow({
   titleAccessory = null,
   summary = null,
   statusOverride = null,
+  progressOverride,
   dimmed = false,
 }: {
   reference: WorkspaceRef;
@@ -90,6 +94,8 @@ export function WorkspaceRow({
   summary?: ReactNode;
   /** Shown in the status slot instead of the row's own (a collapsed tree parent's roll-up). */
   statusOverride?: string | null;
+  /** Drawn instead of the row's own Progress run (a collapsed tree parent's roll-up). */
+  progressOverride?: RowProgress | null;
   /** Lifted over a drop that is refused: the content fades, as the mock's denied row. */
   dimmed?: boolean;
 }) {
@@ -111,6 +117,8 @@ export function WorkspaceRow({
   const detail = useWorkspaceDetail(reference);
   const { titleSource, trailing } = useSidebarPreferences();
   const hover = useRowHover();
+  const ownProgress = useRowProgress(reference.key);
+  const progress = progressOverride !== undefined ? progressOverride : ownProgress;
   const labels = useWorkspaceLabels(reference.hostId, w?.labels);
   const guarded = useGuardedPress();
   const grouping = useProjectGrouping();
@@ -133,6 +141,17 @@ export function WorkspaceRow({
   const hovered = hover.hovered && !editing;
   const fill = selected ? colors.selected : hovered ? colors.hover : null;
   const leading = leadingProjectOf(grouping, { ...w, hostId: reference.hostId }, leadingName);
+  const pills = <ProgressPills progress={progress} theme={theme} />;
+  const hasPills = progress !== null && (progress.questions > 0 || progress.stuck);
+  const hasBar = progress !== null && progress.segments.length > 0;
+  // The chevron and the pills sit right after the title; the title then only takes its own width.
+  const afterTitle =
+    titleAccessory || hasPills ? (
+      <>
+        {titleAccessory}
+        {hasPills ? pills : null}
+      </>
+    ) : null;
   return (
     <Pressable
       accessibilityRole="button"
@@ -144,6 +163,8 @@ export function WorkspaceRow({
         minHeight: ROW_HEIGHT,
         marginBottom: 2,
         paddingVertical: 8,
+        // The underline takes 3 more below the content, as the mock's 11.
+        ...(hasBar ? { paddingBottom: 8 + PROGRESS_BAR_SPACE } : null),
         paddingLeft: indented ? 16 : 8,
         paddingRight: 12,
         borderRadius: 8,
@@ -185,7 +206,7 @@ export function WorkspaceRow({
                 <Text
                   numberOfLines={1}
                   style={{
-                    ...(titleAccessory ? { flexShrink: 1 } : { flex: 1 }),
+                    ...(afterTitle ? { flexShrink: 1 } : { flex: 1 }),
                     minWidth: 0,
                     color: c.foreground,
                     fontSize: 14,
@@ -196,9 +217,9 @@ export function WorkspaceRow({
                 >
                   {title}
                 </Text>
-                {titleAccessory ? (
+                {afterTitle ? (
                   <>
-                    {titleAccessory}
+                    {afterTitle}
                     <View style={{ flex: 1 }} />
                   </>
                 ) : null}
@@ -228,6 +249,7 @@ export function WorkspaceRow({
             serviceSummary={IS_DESKTOP && detail ? selectWorkspaceServiceSummary(detail.scripts) : null}
             labels={labels}
           />
+          {hasBar && progress ? <ProgressUnderline progress={progress} theme={theme} selected={selected} /> : null}
         </View>
       </View>
     </Pressable>

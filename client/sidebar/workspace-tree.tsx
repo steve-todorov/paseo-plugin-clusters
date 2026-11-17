@@ -10,6 +10,7 @@ import { t } from "../web";
 import { useGuardedPress } from "./drag-list";
 import type { Slot } from "../../shared/sidebar/reorder";
 import { useSidebarPreferences } from "./preferences";
+import { useSubtreeProgress } from "./progress";
 import { StatusRing } from "./status-ring";
 import { LINE, ROW_HEIGHT, TREE_GUIDE_X, TREE_INDENT, type Theme, palette } from "./theme";
 import { WorkspaceRow } from "./workspace-row";
@@ -136,6 +137,7 @@ export function TreeRowView({
   const guarded = useGuardedPress();
   const folded = collapsed && row.childCount > 0;
   const rollUp = useSubtreeStatus(folded ? [reference.key, ...subtree] : []);
+  const progressRollUp = useSubtreeProgress(folded ? [reference.key, ...subtree] : []);
   const indent = row.depth * TREE_INDENT;
   const isTarget = cue !== null && cue.target === row.key && !dragging;
   const nestCue = isTarget && cue.plan?.kind === "nest";
@@ -204,6 +206,7 @@ export function TreeRowView({
           dimmed={dragging && cue !== null && cue.plan === null}
           titleAccessory={chevron}
           statusOverride={folded ? rollUp.status : null}
+          progressOverride={folded ? progressRollUp : undefined}
           summary={folded ? <CountPill buckets={rollUp.buckets} count={row.descendants} theme={theme} /> : null}
         />
       </View>

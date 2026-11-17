@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
-import type { ProjectIconData } from "../shared/daemon-data";
+import type { ProgressReadResultData, ProjectIconData } from "../shared/daemon-data";
 import type { WorkspaceLabelDefinition } from "../shared/sidebar/labels";
 
 /*
@@ -12,6 +12,11 @@ import type { WorkspaceLabelDefinition } from "../shared/sidebar/labels";
 export interface HostEndpoint {
   readProjectIcon(projectId: string): Promise<ProjectIconData | null>;
   readWorkspaceLabels(): Promise<readonly WorkspaceLabelDefinition[]>;
+  /**
+   * The Progress plugin's runs in these directories. Optional: a copy from before
+   * it offers none, and its rows draw no progress.
+   */
+  readProgress?(directories: readonly string[]): Promise<ProgressReadResultData>;
 }
 
 interface Registry {

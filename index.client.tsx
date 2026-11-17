@@ -3,7 +3,7 @@ import { ClustersSurface } from "./client/clusters";
 import { ClustersSidebarView } from "./client/sidebar-view";
 import { t } from "./client/web";
 import { type AgentLike, toMs, usedAt } from "./shared/activity";
-import { readProjectIcon, readWorkspaceLabels } from "./shared/daemon-data";
+import { readProgress, readProjectIcon, readWorkspaceLabels } from "./shared/daemon-data";
 import { readState, writeState } from "./shared/storage";
 import { type HostEndpoint, offerHostEndpoint } from "./client/host-rpc";
 import { type Daemon, type WorkspaceStatus, claimScreen, registerProjectHistory, registerProjectRoots, connectDaemon, disconnectDaemon, isWeb, registerProjects, removeWorkspace, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
@@ -55,6 +55,7 @@ export default function contribute(client: PluginClientContext) {
   const endpoint: HostEndpoint = {
     readProjectIcon: (projectId) => client.rpc(readProjectIcon, { projectId }),
     readWorkspaceLabels: async () => (await client.rpc(readWorkspaceLabels, {})).labels,
+    readProgress: (directories) => client.rpc(readProgress, { directories: [...directories] }),
   };
   let withdrawEndpoint: (() => void) | null = null;
   const daemon = connectDaemon({
