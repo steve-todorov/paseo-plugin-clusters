@@ -19,20 +19,31 @@ import {
   toggleRowItem,
   toggleTrailing,
 } from "../../../shared/sidebar/preferences";
+import { PROGRESS_VISIBILITIES, type ProgressVisibility, stepProgressHideAfterHours } from "../../../shared/sidebar/progress-visibility";
 import { SIDEBAR_ROW_ITEMS, type SidebarRowItem } from "../../../shared/sidebar/row-items";
 import { t } from "../../web";
 import type { StoredSidebarSettings } from "../preferences";
 import { ProjectIcon, useProjectIconData } from "../project-icon";
 import { leadingProjectOf, useProjectGrouping } from "../project-grouping";
 import { type Theme, isDark } from "../theme";
-import { MenuItem, MenuSeparator, MenuSubTrigger, OPTION_ICON_SIZE, OptionIcon } from "./rows";
+import { MenuItem, MenuSeparator, MenuStepper, MenuSubTrigger, OPTION_ICON_SIZE, OptionIcon } from "./rows";
 
 /*
  * The pages of Paseo's display-preferences menu (components/sidebar/display-preferences/menu.tsx,
  * v0.16), with its option order, icons and labels.
  */
 
-export type MenuPageId = "root" | "grouping" | "sort" | "titleSource" | "show" | "checks" | "hostFilter" | "projectFilter" | "labelFilter";
+export type MenuPageId =
+  | "root"
+  | "grouping"
+  | "sort"
+  | "titleSource"
+  | "show"
+  | "checks"
+  | "progress"
+  | "hostFilter"
+  | "projectFilter"
+  | "labelFilter";
 
 export interface MenuHost {
   serverId: string;
@@ -61,6 +72,8 @@ export interface DisplayMenuModel {
   labels: readonly WorkspaceLabelDefinition[];
   /** The label filter as the list applies it. */
   resolvedLabelFilter: readonly string[];
+  /** Some host runs the Progress plugin, so rows can carry a run. */
+  progressAvailable: boolean;
 }
 
 export interface MenuNavigation {
@@ -82,6 +95,7 @@ const ROW_ITEM_ICONS: Record<SidebarRowItem, string> = {
 // How much of the row an option spends: a glyph with words, the glyph alone, nothing.
 const CHECKS_DISPLAY_ICONS: Record<SidebarChecksDisplay, string> = { iconAndText: "Captions", icon: "CircleCheck", none: "EyeOff" };
 const TRAILING_ICONS: Record<SidebarTrailingChoice, string> = { diff: "Diff", timestamp: "Clock" };
+const PROGRESS_VISIBILITY_ICONS: Record<ProgressVisibility, string> = { always: "Eye", recent: "Clock" };
 
 export function groupingLabel(s: Strings, mode: SidebarGroupMode): string {
   return mode === "project" ? s.groupingProject : s.groupingStatus;
@@ -107,6 +121,10 @@ function rowItemLabel(s: Strings, item: SidebarRowItem): string {
   return labels[item];
 }
 
+export function progressVisibilityLabel(s: Strings, visibility: ProgressVisibility): string {
+  return visibility === "always" ? s.progressAlways : s.progressRecent;
+}
+
 function checksLabel(s: Strings, display: SidebarChecksDisplay): string {
   return display === "iconAndText" ? s.checksIconAndText : display === "icon" ? s.checksIcon : s.checksNone;
 }
@@ -121,6 +139,8 @@ export function menuRows(model: DisplayMenuModel) {
     projectFilter: model.projects.length > 1,
     // An active filter keeps its row even with no labels left, so it can still be undone.
     labelFilter: model.labels.length > 0 || labelFilterActive,
+    // Without Progress on any host no row carries a run, so there is nothing to hide.
+    progress: model.progressAvailable,
   };
 }
 
@@ -176,6 +196,21 @@ export function MenuPage({ page, model, nav, theme }: { page: MenuPageId; model:
               leading={<OptionIcon name={CHECKS_DISPLAY_ICONS[display]} theme={theme} />}
               selected={settings.checksDisplay === display}
               onPress={() => pick((current) => ({ ...current, checksDisplay: display }))}
+            />
+          ))}
+        </>
+      );
+    case "progress":
+      return (
+        <>
+          {PROGRESS_VISIBILITIES.map((visibility) => (
+            <MenuItem
+              key={visibility}
+              theme={theme}
+              label={progressVisibilityLabel(s, visibility)}
+              leading={<OptionIcon name={PROGRESS_VISIBILITY_ICONS[visibility]} theme={theme} />}
+              selected={settings.progressVisibility === visibility}
+              onPress={() => pick((current) => ({ ...current, progressVisibility: visibility }))}
             />
           ))}
         </>
@@ -310,6 +345,28 @@ function RootPage({ model, nav, theme }: { model: DisplayMenuModel; nav: MenuNav
         onPress={() => nav.open("titleSource")}
       />
       <MenuSubTrigger theme={theme} label={s.showLabel} onPress={() => nav.open("show")} />
+      {rows.progress ? (
+        <>
+          <MenuSubTrigger
+            theme={theme}
+            label={s.progressLabel}
+            value={progressVisibilityLabel(s, settings.progressVisibility)}
+            onPress={() => nav.open("progress")}
+          />
+          {/* The limit only means something while idle rows hide, so it shows only then. */}
+          {settings.progressVisibility === "recent" ? (
+            <MenuStepper
+              theme={theme}
+              label={s.progressHideAfter(settings.progressHideAfterHours)}
+              value={settings.progressHideAfterHours}
+              step={stepProgressHideAfterHours}
+              onChange={(hours) => update((current) => ({ ...current, progressHideAfterHours: hours }))}
+              decreaseLabel={s.progressHideSooner}
+              increaseLabel={s.progressHideLater}
+            />
+          ) : null}
+        </>
+      ) : null}
       {rows.hostFilter ? (
         <>
           <MenuSeparator theme={theme} />

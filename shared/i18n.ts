@@ -175,6 +175,13 @@ const en = {
   progressStuck: "stuck",
   progressQuestions: (count: number) => (count === 1 ? "1 question waiting for you" : `${count} questions waiting for you`),
   progressTickets: (done: number, total: number) => `Progress: ${done} of ${total} done`,
+  // The display menu's Progress rows: when rows of idle workspaces drop their run.
+  progressLabel: "Progress",
+  progressAlways: "Always show",
+  progressRecent: "Hide when idle",
+  progressHideAfter: (hours: number) => `Hide after ${hours}h`,
+  progressHideSooner: "Hide sooner",
+  progressHideLater: "Hide later",
 };
 
 const es: typeof en = {
@@ -345,6 +352,12 @@ const es: typeof en = {
   progressStuck: "atascado",
   progressQuestions: (count) => (count === 1 ? "1 pregunta te espera" : `${count} preguntas te esperan`),
   progressTickets: (done, total) => `Progreso: ${done} de ${total} hechas`,
+  progressLabel: "Progreso",
+  progressAlways: "Mostrar siempre",
+  progressRecent: "Ocultar si está inactivo",
+  progressHideAfter: (hours) => `Ocultar tras ${hours} h`,
+  progressHideSooner: "Ocultar antes",
+  progressHideLater: "Ocultar más tarde",
 };
 
 export const LANGUAGES: Record<Language, typeof en> = { en, es };

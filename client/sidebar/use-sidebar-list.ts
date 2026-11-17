@@ -1,6 +1,6 @@
 import { type WorkspaceRef, useHosts, useWorkspaces } from "@getpaseo/plugin/client";
 import { useMemo } from "react";
-import { inRecents, toMs } from "../../shared/activity";
+import { inRecents, workspaceUsedAt as usedAt } from "../../shared/activity";
 import {
   matchesLabelFilter,
   resolveActiveHostFilters,
@@ -41,11 +41,6 @@ interface Snapshot {
   lastPromptAt: string | null;
   indicator: StatusBucket;
   statusEnteredAt: string | null;
-}
-
-/** The user's last prompt in a workspace, or when it was made. 0 if neither. */
-function usedAt(w: { lastPromptAt: string | null; createdAt: string | null }): number {
-  return toMs(w.lastPromptAt) || toMs(w.createdAt);
 }
 
 const byUseDesc = (a: Snapshot, b: Snapshot) => usedAt(b) - usedAt(a);

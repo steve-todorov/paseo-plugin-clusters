@@ -37,6 +37,8 @@ function pageTitle(s: Strings, page: MenuPageId): string {
       return s.showLabel;
     case "checks":
       return s.showChecks;
+    case "progress":
+      return s.progressLabel;
     case "hostFilter":
       return s.hostFilterLabel;
     case "projectFilter":

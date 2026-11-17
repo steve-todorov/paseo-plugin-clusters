@@ -29,6 +29,11 @@ export function inRecents(latest: number, hiddenAt: number | undefined, unlimite
   return unlimited || latest > 0;
 }
 
+/** The user's last prompt in a workspace, or when it was made. 0 if neither. */
+export function workspaceUsedAt(w: { lastPromptAt: string | null; createdAt: string | null }): number {
+  return toMs(w.lastPromptAt) || toMs(w.createdAt);
+}
+
 /** The user's last message to this session, or failing that when they created it. 0 if neither. */
 export function usedAt(agent: AgentLike): number {
   return toMs(agent.lastUserMessageAt) || toMs(agent.createdAt);

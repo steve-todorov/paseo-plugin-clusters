@@ -1,15 +1,18 @@
 import { useWorkspaces } from "@getpaseo/plugin/client";
 import { useQueries } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { workspaceUsedAt } from "../../shared/activity";
 import type { ProgressReadResultData } from "../../shared/daemon-data";
 import { type RowProgress, aggregateRowProgress, rowProgressOf } from "../../shared/sidebar/progress-bar";
+import { type ProgressVisibilityPrefs, progressIsFresh } from "../../shared/sidebar/progress-visibility";
 import { getHostEndpoint, useOfferedHostIds } from "../host-rpc";
 
 /*
  * Each workspace's Paseo Progress run, read by its own host's copy of this plugin (each daemon
  * reads its own files) and polled while the sidebar view is mounted. A host whose copy has no
  * `readProgress`, or that does not run Progress, draws nothing; the latter is asked again only at
- * the server's availability interval.
+ * the server's availability interval. Under "Hide when idle" a stale workspace's run is left out
+ * here, before any folded parent rolls it up.
  */
 
 /** How often an open view rereads a host's progress files. */
@@ -20,17 +23,22 @@ const UNAVAILABLE_REFRESH_MS = 60_000;
 /** Row progress by workspace key; each entry keeps its identity until it changes. */
 export class ProgressStore {
   private byKey = new Map<string, { json: string; value: RowProgress }>();
+  private available = false;
   private readonly listeners = new Set<() => void>();
 
   get = (key: string): RowProgress | null => this.byKey.get(key)?.value ?? null;
+
+  /** Some host runs Progress, stale workspaces or not: the display menu offers its rows then. */
+  isAvailable = (): boolean => this.available;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
 
-  replace(next: ReadonlyMap<string, RowProgress>): void {
-    let changed = next.size !== this.byKey.size;
+  replace(next: ReadonlyMap<string, RowProgress>, available: boolean): void {
+    let changed = next.size !== this.byKey.size || available !== this.available;
+    this.available = available;
     const fresh = new Map<string, { json: string; value: RowProgress }>();
     for (const [key, value] of next) {
       const json = JSON.stringify(value);
@@ -48,8 +56,11 @@ export class ProgressStore {
 
 const SEPARATOR = "\u0000";
 
-/** Follows every listed workspace's progress for as long as the caller is mounted. */
-export function useProgressSource(): ProgressStore {
+/**
+ * Follows every listed workspace's progress for as long as the caller is mounted. `now` is the
+ * view's clock; its ticks hide runs that go stale without anything else changing.
+ */
+export function useProgressSource(visibility: ProgressVisibilityPrefs, now: number): ProgressStore {
   const [store] = useState(() => new ProgressStore());
   // One group per host and directory; its items are the workspaces there.
   const groups = useWorkspaces({ where: (w) => !w.archivingAt && Boolean(w.directory), groupBy: (w) => `${w.hostId}${SEPARATOR}${w.directory}` });
@@ -66,6 +77,9 @@ export function useProgressSource(): ProgressStore {
     }
     return { directories, keysOf };
   }, [groups]);
+  // Stale workspaces are still read, so their runs come back as soon as they are used again.
+  const stale = useWorkspaces({ where: (w) => !w.archivingAt && !progressIsFresh(workspaceUsedAt(w), now, visibility) });
+  const staleKeys = useMemo(() => stale.map((ref) => ref.key).join("\n"), [stale]);
   const hostIds = [...layout.directories.keys()].filter((id) => offered.includes(id) && getHostEndpoint(id)?.readProgress).sort();
   const results = useQueries({
     queries: hostIds.map((hostId) => {
@@ -84,20 +98,23 @@ export function useProgressSource(): ProgressStore {
   });
   const stamp = results.map((result, index) => `${hostIds[index]}:${result.dataUpdatedAt}`).join(",");
   useEffect(() => {
+    const hidden = new Set(staleKeys ? staleKeys.split("\n") : []);
     const next = new Map<string, RowProgress>();
+    let available = false;
     results.forEach((result, index) => {
       const hostId = hostIds[index];
       const data = result.data;
       if (!hostId || !data?.available) return;
+      available = true;
       for (const [directory, summary] of Object.entries(data.summaries)) {
         const progress = rowProgressOf(summary);
         if (!progress) continue;
-        for (const key of layout.keysOf.get(`${hostId}${SEPARATOR}${directory}`) ?? []) next.set(key, progress);
+        for (const key of layout.keysOf.get(`${hostId}${SEPARATOR}${directory}`) ?? []) if (!hidden.has(key)) next.set(key, progress);
       }
     });
-    store.replace(next);
-    // `stamp` changes with every answer; `layout` with the workspace list.
-  }, [store, stamp, layout]);
+    store.replace(next, available);
+    // `stamp` changes with every answer; `layout` with the workspace list; `staleKeys` with the clock.
+  }, [store, stamp, layout, staleKeys]);
   return store;
 }
 

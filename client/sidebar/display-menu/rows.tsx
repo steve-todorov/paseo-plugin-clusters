@@ -1,5 +1,5 @@
 import { Icon } from "@getpaseo/plugin/client/ui";
-import type { ReactNode } from "react";
+import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { t } from "../../web";
 import type { Theme } from "../theme";
@@ -14,6 +14,8 @@ import { useHover } from "../workspace-row";
 export const MENU_ROW_HEIGHT = Platform.OS === "web" ? 28 : 44;
 /** Fits the row's 16pt leading slot with a hair of room, matching the trailing check. */
 export const OPTION_ICON_SIZE = 14;
+/** A held − or + steps this often, as the Clusters screen's Recents buttons do. */
+const REPEAT_MS = 120;
 
 export function MenuItem({
   theme,
@@ -142,4 +144,102 @@ export function MenuPageHeader({ theme, title, onBack }: { theme: Theme; title: 
 /** An option's mark in the leading slot. */
 export function OptionIcon({ name, theme }: { name: string; theme: Theme }) {
   return <Icon name={name} size={OPTION_ICON_SIZE} color={theme.colors.foregroundMuted} />;
+}
+
+/**
+ * A value with − and + on the right, as the Clusters screen's Recents window. A held button keeps
+ * stepping until released; `step` answers the next value, the same one at an end.
+ */
+export function MenuStepper({
+  theme,
+  label,
+  value,
+  step,
+  onChange,
+  decreaseLabel,
+  increaseLabel,
+}: {
+  theme: Theme;
+  label: string;
+  value: number;
+  step: (value: number, delta: 1 | -1) => number;
+  onChange: (value: number) => void;
+  decreaseLabel: string;
+  increaseLabel: string;
+}) {
+  const c = theme.colors;
+  // Steps from the last value set here, not this render's, so a held button keeps counting.
+  const latest = useRef(value);
+  const repeat = useRef<ReturnType<typeof setInterval> | null>(null);
+  if (!repeat.current) latest.current = value;
+  const stepBy = (delta: 1 | -1): boolean => {
+    const next = step(latest.current, delta);
+    if (next === latest.current) return false;
+    latest.current = next;
+    onChange(next);
+    return true;
+  };
+  const stopRepeat = useCallback(() => {
+    if (repeat.current) clearInterval(repeat.current);
+    repeat.current = null;
+  }, []);
+  useEffect(() => stopRepeat, [stopRepeat]);
+  // At an end the button is disabled and may never see the release, so the repeat stops itself there.
+  const startRepeat = (delta: 1 | -1) => {
+    stopRepeat();
+    if (!stepBy(delta)) return;
+    repeat.current = setInterval(() => {
+      if (!stepBy(delta)) stopRepeat();
+    }, REPEAT_MS);
+  };
+  const button = (glyph: string, a11y: string, delta: 1 | -1) => {
+    const disabled = step(value, delta) === value;
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={a11y}
+        disabled={disabled}
+        hitSlop={4}
+        onPress={() => stepBy(delta)}
+        onLongPress={() => startRepeat(delta)}
+        onPressOut={stopRepeat}
+        delayLongPress={400}
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: 4,
+          alignItems: "center",
+          justifyContent: "center",
+          borderWidth: 1,
+          borderColor: c.border,
+          opacity: disabled ? 0.4 : 1,
+        }}
+      >
+        <Text selectable={false} style={{ color: c.foreground, fontSize: 14, lineHeight: 16 }}>
+          {glyph}
+        </Text>
+      </Pressable>
+    );
+  };
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        minHeight: MENU_ROW_HEIGHT,
+        gap: 6,
+        marginHorizontal: 4,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+      }}
+    >
+      <Text numberOfLines={1} style={{ flexShrink: 1, minWidth: 0, fontSize: 14, lineHeight: 18, color: c.foreground }}>
+        {label}
+      </Text>
+      <View style={{ marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 6 }}>
+        {button("\u2212", decreaseLabel, -1)}
+        {button("+", increaseLabel, 1)}
+      </View>
+    </View>
+  );
 }

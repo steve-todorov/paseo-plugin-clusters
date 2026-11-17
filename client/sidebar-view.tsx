@@ -218,8 +218,9 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
   const label = recent ? strings.recentsTooltip(hours) : (cluster?.name ?? strings.allLabel);
 
   const details = useWorkspaceDetailsSource();
-  // Each workspace's Progress run, polled while this view is mounted.
-  const progress = useProgressSource();
+  // Each workspace's Progress run, polled while this view is mounted; stale ones hide on the minute tick.
+  const progress = useProgressSource(settings, now);
+  const progressAvailable = useSyncExternalStore(progress.subscribe, progress.isAvailable);
   const preferences: SidebarPreferences = useMemo(
     () => ({
       grouping: settings.grouping,
@@ -232,6 +233,8 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
       projectFilters: settings.projectFilters,
       labelFilter: settings.labelFilter,
       showBackground: settings.showBackground,
+      progressVisibility: settings.progressVisibility,
+      progressHideAfterHours: settings.progressHideAfterHours,
     }),
     [settings],
   );
@@ -397,6 +400,7 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
                     resolvedProjectFilters: list.resolvedProjectFilters,
                     labels: list.labels,
                     resolvedLabelFilter: list.resolvedLabelFilter,
+                    progressAvailable,
                   }}
                   theme={theme}
                   compact={layout.compact}

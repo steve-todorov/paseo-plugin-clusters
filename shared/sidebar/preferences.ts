@@ -7,6 +7,12 @@
 import { z } from "zod";
 import { DEFAULT_SIDEBAR_CHECKS_DISPLAY, SIDEBAR_CHECKS_DISPLAYS, type SidebarChecksDisplay } from "./checks-display.ts";
 import { workspaceLabelKey } from "./labels.ts";
+import {
+  DEFAULT_PROGRESS_HIDE_AFTER_HOURS,
+  PROGRESS_VISIBILITIES,
+  type ProgressVisibility,
+  normalizeProgressHideAfterHours,
+} from "./progress-visibility.ts";
 import { DEFAULT_SIDEBAR_ROW_ITEMS, type SidebarRowItem, type SidebarRowItems, parseSidebarRowItems } from "./row-items.ts";
 
 /** In the menu's order. */
@@ -52,6 +58,10 @@ export interface SidebarPreferences {
   projectFilters: readonly string[];
   labelFilter: SidebarLabelFilter;
   showBackground: boolean;
+  /** Whether rows of workspaces not used for a while drop their Progress run. */
+  progressVisibility: ProgressVisibility;
+  /** How long a workspace goes unused before "recent" drops its run. */
+  progressHideAfterHours: number;
 }
 
 export const DEFAULT_SIDEBAR_PREFERENCES: SidebarPreferences = {
@@ -65,6 +75,8 @@ export const DEFAULT_SIDEBAR_PREFERENCES: SidebarPreferences = {
   projectFilters: [],
   labelFilter: { labels: [] },
   showBackground: false,
+  progressVisibility: "always",
+  progressHideAfterHours: DEFAULT_PROGRESS_HIDE_AFTER_HOURS,
 };
 
 /** Re-keys a stored filter through `workspaceLabelKey`, so its keys are always in key form. */
@@ -93,6 +105,8 @@ export const SidebarSettingsSchema = z.object({
   projectFilters: StringList,
   labelFilter: z.object({ labels: z.array(z.string()) }).transform(normalizeLabelFilter).catch({ labels: [] }),
   showBackground: z.boolean().catch(false),
+  progressVisibility: z.enum(PROGRESS_VISIBILITIES).catch("always"),
+  progressHideAfterHours: z.unknown().optional().transform(normalizeProgressHideAfterHours),
   /** Project keys in the user's order; the All view applies it over name order. */
   projectOrder: StringList,
   /** Workspace keys per project key, for the "Manual" sort. */

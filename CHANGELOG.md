@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The Clusters view's Display menu has a Progress row: "Hide when idle" drops the Progress bar, the
+  stuck pill and the "?" from workspaces not used for a while (72 h by default, set with − / +, up
+  to 30 days). Folded parents roll up only the runs still showing. "Always show" stays the default.
 - Recents can have no time limit: step below 1 h in the Clusters screen to pick "No limit"
   (stored as -1). Every project then stays in Recents until you hide it.
 - An "Active cluster" picker at the top of the Clusters screen, shown on every client, sets the
