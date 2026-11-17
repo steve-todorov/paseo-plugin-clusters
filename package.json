@@ -1,6 +1,6 @@
 {
   "name": "@thisjrodriguez/paseo-plugin-clusters",
-  "version": "0.5.9-dev.6",
+  "version": "0.5.9-dev.7",
   "files": [
     "paseo-plugin.json",
     "OVERVIEW.md",

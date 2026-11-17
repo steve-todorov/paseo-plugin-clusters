@@ -179,7 +179,7 @@ const en = {
   progressLabel: "Progress",
   progressAlways: "Always show",
   progressRecent: "Hide when idle",
-  progressHideAfter: (hours: number) => `Hide after ${hours}h`,
+  progressHideAfter: (days: number) => `Progress hide after ${days} d`,
   progressHideSooner: "Hide sooner",
   progressHideLater: "Hide later",
 };
@@ -355,7 +355,7 @@ const es: typeof en = {
   progressLabel: "Progreso",
   progressAlways: "Mostrar siempre",
   progressRecent: "Ocultar si está inactivo",
-  progressHideAfter: (hours) => `Ocultar tras ${hours} h`,
+  progressHideAfter: (days) => `Ocultar progreso tras ${days} d`,
   progressHideSooner: "Ocultar antes",
   progressHideLater: "Ocultar más tarde",
 };

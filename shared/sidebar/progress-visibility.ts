@@ -8,23 +8,21 @@
 export const PROGRESS_VISIBILITIES = ["always", "recent"] as const;
 export type ProgressVisibility = (typeof PROGRESS_VISIBILITIES)[number];
 
-export const MIN_PROGRESS_HIDE_AFTER_HOURS = 1;
-/** 30 days. */
-export const MAX_PROGRESS_HIDE_AFTER_HOURS = 720;
-export const DEFAULT_PROGRESS_HIDE_AFTER_HOURS = 72;
+export const MIN_PROGRESS_HIDE_AFTER_DAYS = 1;
+export const MAX_PROGRESS_HIDE_AFTER_DAYS = 30;
+export const DEFAULT_PROGRESS_HIDE_AFTER_DAYS = 3;
 
-const HOUR_MS = 60 * 60 * 1000;
-const DAY_HOURS = 24;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface ProgressVisibilityPrefs {
   progressVisibility: ProgressVisibility;
-  progressHideAfterHours: number;
+  progressHideAfterDays: number;
 }
 
-/** Whole hours within the bounds; anything that is not a number reads as the default. */
-export function normalizeProgressHideAfterHours(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_PROGRESS_HIDE_AFTER_HOURS;
-  return Math.min(MAX_PROGRESS_HIDE_AFTER_HOURS, Math.max(MIN_PROGRESS_HIDE_AFTER_HOURS, Math.round(value)));
+/** Whole days within the bounds; anything that is not a number reads as the default. */
+export function normalizeProgressHideAfterDays(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_PROGRESS_HIDE_AFTER_DAYS;
+  return Math.min(MAX_PROGRESS_HIDE_AFTER_DAYS, Math.max(MIN_PROGRESS_HIDE_AFTER_DAYS, Math.round(value)));
 }
 
 /**
@@ -34,17 +32,10 @@ export function normalizeProgressHideAfterHours(value: unknown): number {
 export function progressIsFresh(usedAtMs: number, nowMs: number, prefs: ProgressVisibilityPrefs): boolean {
   if (prefs.progressVisibility === "always") return true;
   if (usedAtMs <= 0) return false;
-  return nowMs - usedAtMs <= prefs.progressHideAfterHours * HOUR_MS;
+  return nowMs - usedAtMs <= prefs.progressHideAfterDays * DAY_MS;
 }
 
-/**
- * The menu's − / + step: an hour at a time below a day, a day at a time from there, so the whole
- * range is a few dozen presses. A value off the day grid snaps to the next day in either direction.
- */
-export function stepProgressHideAfterHours(hours: number, delta: 1 | -1): number {
-  const from = normalizeProgressHideAfterHours(hours);
-  let next: number;
-  if (delta > 0) next = from < DAY_HOURS ? from + 1 : (Math.floor(from / DAY_HOURS) + 1) * DAY_HOURS;
-  else next = from <= DAY_HOURS ? from - 1 : (Math.ceil(from / DAY_HOURS) - 1) * DAY_HOURS;
-  return normalizeProgressHideAfterHours(next);
+/** The menu's − / + step: a day at a time, staying put at either end. */
+export function stepProgressHideAfterDays(days: number, delta: 1 | -1): number {
+  return normalizeProgressHideAfterDays(normalizeProgressHideAfterDays(days) + delta);
 }

@@ -19,7 +19,7 @@ import {
   toggleRowItem,
   toggleTrailing,
 } from "../../../shared/sidebar/preferences";
-import { PROGRESS_VISIBILITIES, type ProgressVisibility, stepProgressHideAfterHours } from "../../../shared/sidebar/progress-visibility";
+import { PROGRESS_VISIBILITIES, type ProgressVisibility, stepProgressHideAfterDays } from "../../../shared/sidebar/progress-visibility";
 import { SIDEBAR_ROW_ITEMS, type SidebarRowItem } from "../../../shared/sidebar/row-items";
 import { t } from "../../web";
 import type { StoredSidebarSettings } from "../preferences";
@@ -357,10 +357,10 @@ function RootPage({ model, nav, theme }: { model: DisplayMenuModel; nav: MenuNav
           {settings.progressVisibility === "recent" ? (
             <MenuStepper
               theme={theme}
-              label={s.progressHideAfter(settings.progressHideAfterHours)}
-              value={settings.progressHideAfterHours}
-              step={stepProgressHideAfterHours}
-              onChange={(hours) => update((current) => ({ ...current, progressHideAfterHours: hours }))}
+              label={s.progressHideAfter(settings.progressHideAfterDays)}
+              value={settings.progressHideAfterDays}
+              step={stepProgressHideAfterDays}
+              onChange={(days) => update((current) => ({ ...current, progressHideAfterDays: days }))}
               decreaseLabel={s.progressHideSooner}
               increaseLabel={s.progressHideLater}
             />

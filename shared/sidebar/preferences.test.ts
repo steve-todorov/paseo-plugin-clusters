@@ -70,22 +70,28 @@ test("a row item flips without touching the others", () => {
   assert.deepEqual(toggleRowItem(DEFAULT_SIDEBAR_ROW_ITEMS, "branch"), { ...DEFAULT_SIDEBAR_ROW_ITEMS, branch: true });
 });
 
-test("progress shows always by default and hides after 72 h once set to recent", () => {
+test("progress shows always by default and hides after 3 days once set to recent", () => {
   const settings = parseSidebarSettings({});
   assert.equal(settings.progressVisibility, "always");
-  assert.equal(settings.progressHideAfterHours, 72);
-  const recent = parseSidebarSettings({ progressVisibility: "recent", progressHideAfterHours: 6 });
+  assert.equal(settings.progressHideAfterDays, 3);
+  const recent = parseSidebarSettings({ progressVisibility: "recent", progressHideAfterDays: 6 });
   assert.equal(recent.progressVisibility, "recent");
-  assert.equal(recent.progressHideAfterHours, 6);
+  assert.equal(recent.progressHideAfterDays, 6);
 });
 
-test("bad progress settings fall back alone, and the hours are kept in bounds", () => {
-  const settings = parseSidebarSettings({ progressVisibility: "never", progressHideAfterHours: "soon", sort: "manual" });
+test("bad progress settings fall back alone, and the days are kept in bounds", () => {
+  const settings = parseSidebarSettings({ progressVisibility: "never", progressHideAfterDays: "soon", sort: "manual" });
   assert.equal(settings.progressVisibility, "always");
-  assert.equal(settings.progressHideAfterHours, 72);
+  assert.equal(settings.progressHideAfterDays, 3);
   assert.equal(settings.sort, "manual");
-  assert.equal(parseSidebarSettings({ progressHideAfterHours: 0 }).progressHideAfterHours, 1);
-  assert.equal(parseSidebarSettings({ progressHideAfterHours: 99_999 }).progressHideAfterHours, 720);
+  assert.equal(parseSidebarSettings({ progressHideAfterDays: 0 }).progressHideAfterDays, 1);
+  assert.equal(parseSidebarSettings({ progressHideAfterDays: 400 }).progressHideAfterDays, 30);
+});
+
+test("a stored hours limit from an earlier build is ignored", () => {
+  const settings = parseSidebarSettings({ progressHideAfterHours: 12 });
+  assert.equal(settings.progressHideAfterDays, 3);
+  assert.equal("progressHideAfterHours" in settings, false);
 });
 
 test("picking the trailing choice already showing empties the slot", () => {

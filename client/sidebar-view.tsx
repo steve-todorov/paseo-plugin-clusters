@@ -234,7 +234,7 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
       labelFilter: settings.labelFilter,
       showBackground: settings.showBackground,
       progressVisibility: settings.progressVisibility,
-      progressHideAfterHours: settings.progressHideAfterHours,
+      progressHideAfterDays: settings.progressHideAfterDays,
     }),
     [settings],
   );
