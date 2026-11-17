@@ -14,7 +14,7 @@ import {
 import { hasWorkspaceTrailing } from "../../shared/sidebar/workspace-row";
 import type { WorkspaceRowDetail } from "../../shared/sidebar/workspace-row";
 import { t } from "../web";
-import { useGuardedPress } from "./drag-list";
+import { useActionPressGuard, useGuardedPress } from "./drag-list";
 import { LINE, type Theme } from "./theme";
 import { WorkspaceTrailing } from "./trailing";
 import type { WorkspaceActions } from "./workspace-actions";
@@ -60,6 +60,7 @@ export function WorkspaceTrailingSlot({
   actions: WorkspaceActions | null;
 }) {
   const guarded = useGuardedPress();
+  const actionGuard = useActionPressGuard();
   const kebabRef = useRef<View>(null);
   const touch = actions?.touch ?? false;
   const v = resolveTrailingActionVisibility({
@@ -87,7 +88,7 @@ export function WorkspaceTrailingSlot({
       {showKebab && actions ? (
         <>
           {v.showScrim && backdrop ? <Scrim color={backdrop} width={v.showArchiveButton ? SCRIM_WIDTH + ARCHIVE_BUTTON_FOOTPRINT : SCRIM_WIDTH} /> : null}
-          <View style={{ position: "absolute", top: 0, right: 0, flexDirection: "row", alignItems: "flex-start" }}>
+          <View {...actionGuard} style={{ position: "absolute", top: 0, right: 0, flexDirection: "row", alignItems: "flex-start" }}>
             {v.showArchiveButton ? <ArchiveButton theme={theme} onPress={guarded(archive)} /> : null}
             <Kebab ref={kebabRef} theme={theme} touch={touch} onPress={guarded(() => actions.openMenu(reference, kebabRef.current))} />
           </View>

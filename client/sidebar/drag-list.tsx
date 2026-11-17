@@ -13,6 +13,7 @@ import {
   type View,
   type ViewStyle,
 } from "react-native";
+import { pressMayDrag } from "../../shared/sidebar/row-hover";
 import type { DropZone } from "../../shared/sidebar/workspace-tree";
 import {
   MOUSE_DRAG_DISTANCE,
@@ -60,6 +61,9 @@ interface DragHost {
   /** While a row is renamed in place no drag starts, so selecting its text with the mouse stays a selection. */
   suspend(suspended: boolean): void;
   suspended(): boolean;
+  /** The current press began on one of a row's buttons; every list it reached clears this first. */
+  markActionPress(onAction: boolean): void;
+  actionPress(): boolean;
 }
 
 const DragHostContext = createContext<DragHost | null>(null);
@@ -82,6 +86,7 @@ export function useDragHost() {
   const heldRef = useRef(false);
   const blockedUntil = useRef(0);
   const suspendedRef = useRef(false);
+  const actionPressRef = useRef(false);
 
   const host = useMemo<DragHost>(
     () => ({
@@ -112,6 +117,10 @@ export function useDragHost() {
         suspendedRef.current = suspended;
       },
       suspended: () => suspendedRef.current,
+      markActionPress: (onAction) => {
+        actionPressRef.current = onAction;
+      },
+      actionPress: () => actionPressRef.current,
     }),
     [],
   );
@@ -142,6 +151,24 @@ export function useSuspendDrag(suspended: boolean) {
     host.suspend(true);
     return () => host.suspend(false);
   }, [host, suspended]);
+}
+
+/**
+ * Spread on the View around a row's buttons: a mouse press that begins there stays the button's
+ * and never lifts the row. The rows' drag responders see the press first (capture runs from the
+ * outside in) and clear the mark, so this sets it for the press that is starting.
+ */
+export function useActionPressGuard(): { onStartShouldSetResponderCapture: () => boolean } {
+  const host = useContext(DragHostContext);
+  return useMemo(
+    () => ({
+      onStartShouldSetResponderCapture: () => {
+        host?.markActionPress(true);
+        return false;
+      },
+    }),
+    [host],
+  );
 }
 
 /** Wraps a row's press so the press a hold or drag leaves behind does not open or toggle anything. */
@@ -418,6 +445,7 @@ export function DragList<T, C = never>({
     const responder = PanResponder.create({
       // Watches every press on the row without taking it, so a plain tap still reaches the row.
       onStartShouldSetPanResponderCapture: (event) => {
+        latest.current.host?.markActionPress(false);
         if (!latest.current.enabled || gesture.current.dragging || latest.current.host?.suspended()) return false;
         clearTimer();
         const point = pointOf(event);
@@ -442,6 +470,7 @@ export function DragList<T, C = never>({
         if (g.dragging) return true;
         track(key, event);
         if (gesture.current.key !== key || g.touch) return false;
+        if (!pressMayDrag({ touch: g.touch, startedOnAction: latest.current.host?.actionPress() ?? false })) return false;
         return Math.hypot(g.current.x - g.start.x, g.current.y - g.start.y) > MOUSE_DRAG_DISTANCE;
       },
       onPanResponderGrant: () => {

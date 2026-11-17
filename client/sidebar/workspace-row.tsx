@@ -2,6 +2,7 @@ import { type PluginSidebarViewProps, type WorkspaceRef, useWorkspace } from "@g
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, useEffect, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
+import { nextRowHover } from "../../shared/sidebar/row-hover";
 import { inlineRenameAfterTitle } from "../../shared/sidebar/workspace-actions";
 import type { HostBadgeModel } from "../../shared/sidebar/host-badges";
 import { selectWorkspaceServiceSummary } from "../../shared/sidebar/service-summary";
@@ -30,6 +31,24 @@ const IS_DESKTOP = Platform.OS === "web";
 export function useHover() {
   const [hovered, setHovered] = useState(false);
   return { hovered, onHoverIn: () => setHovered(true), onHoverOut: () => setHovered(false) };
+}
+
+type PointerLike = { nativeEvent: { pointerType?: string | null } };
+
+/**
+ * Hover for a row that holds its own buttons. On web it comes from `pointerenter`/`pointerleave`
+ * on the row, which the pointer moving onto a button does not end; Pressable's own hover would end
+ * there (react-native-web's `contain`) and take the buttons away from under the pointer. Spread
+ * `rowProps` on the row. Other platforms keep Pressable's hover, as before.
+ */
+export function useRowHover() {
+  const [hovered, setHovered] = useState(false);
+  const on = (kind: "enter" | "leave") => (event: PointerLike) =>
+    setHovered((current) => nextRowHover(current, { kind, pointerType: event.nativeEvent?.pointerType }));
+  const rowProps = IS_DESKTOP
+    ? { onPointerEnter: on("enter"), onPointerLeave: on("leave") }
+    : { onHoverIn: () => setHovered(true), onHoverOut: () => setHovered(false) };
+  return { hovered, rowProps };
 }
 
 export function WorkspaceRow({
@@ -91,7 +110,7 @@ export function WorkspaceRow({
   // own workspace directory and fill in once it has listed this workspace.
   const detail = useWorkspaceDetail(reference);
   const { titleSource, trailing } = useSidebarPreferences();
-  const hover = useHover();
+  const hover = useRowHover();
   const labels = useWorkspaceLabels(reference.hostId, w?.labels);
   const guarded = useGuardedPress();
   const grouping = useProjectGrouping();
@@ -120,8 +139,7 @@ export function WorkspaceRow({
       accessibilityState={{ selected }}
       accessibilityLabel={title}
       onPress={editing ? undefined : guarded(() => navigation.openWorkspace(reference))}
-      onHoverIn={hover.onHoverIn}
-      onHoverOut={hover.onHoverOut}
+      {...hover.rowProps}
       style={({ pressed }) => ({
         minHeight: ROW_HEIGHT,
         marginBottom: 2,

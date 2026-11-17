@@ -7,12 +7,12 @@ import type { HostBadgeModel } from "../../shared/sidebar/host-badges";
 import { type ProjectGroup, iconPlacementOf, newWorkspacePlacementOf } from "../../shared/sidebar/project-groups";
 import { type TreeLinks, type TreeRow, buildTree, collapseRows, resolveDrop, subtreeOf } from "../../shared/sidebar/workspace-tree";
 import { t } from "../web";
-import { type DragHandleProps, DragList, type TreeDrag, useGuardedPress } from "./drag-list";
+import { type DragHandleProps, DragList, type TreeDrag, useActionPressGuard, useGuardedPress } from "./drag-list";
 import { GhostRow } from "./ghost-row";
 import { ProjectIcon, useProjectIconData } from "./project-icon";
 import { projectRefOf } from "./project-grouping";
 import { LINE, ROW_HEIGHT, type Theme, draggingRowStyle, palette } from "./theme";
-import { useHover } from "./workspace-row";
+import { useHover, useRowHover } from "./workspace-row";
 import { type TreeCue, TreeDropOverlay, TreeRowView, cueOf, sameHostOf } from "./workspace-tree";
 
 /*
@@ -247,8 +247,9 @@ function ProjectRow({
 }) {
   const c = theme.colors;
   const colors = palette(theme);
-  const hover = useHover();
+  const hover = useRowHover();
   const plusHover = useHover();
+  const actionGuard = useActionPressGuard();
   const icon = useProjectIconData(projectRef);
   const guarded = useGuardedPress();
   // Touch clients have no hover, so their actions always show, as in Paseo.
@@ -260,8 +261,7 @@ function ProjectRow({
         accessibilityState={{ expanded: !collapsed }}
         accessibilityLabel={title}
         onPress={guarded(onToggle)}
-        onHoverIn={hover.onHoverIn}
-        onHoverOut={hover.onHoverOut}
+        {...hover.rowProps}
         style={({ pressed }) => ({
           minHeight: ROW_HEIGHT,
           paddingVertical: 8,
@@ -291,26 +291,28 @@ function ProjectRow({
           </Text>
         </View>
         {project ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t().newWorkspace}
-            disabled={!actionsVisible}
-            onPress={guarded(() => navigation.openProject(project))}
-            onHoverIn={plusHover.onHoverIn}
-            onHoverOut={plusHover.onHoverOut}
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: 6,
-              alignItems: "center",
-              justifyContent: "center",
-              marginRight: -6,
-              opacity: actionsVisible ? 1 : 0,
-              backgroundColor: plusHover.hovered ? colors.hover : "transparent",
-            }}
-          >
-            <Icon name="Plus" size={15} color={plusHover.hovered ? c.foreground : c.foregroundMuted} />
-          </Pressable>
+          <View {...actionGuard}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t().newWorkspace}
+              disabled={!actionsVisible}
+              onPress={guarded(() => navigation.openProject(project))}
+              onHoverIn={plusHover.onHoverIn}
+              onHoverOut={plusHover.onHoverOut}
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 6,
+                alignItems: "center",
+                justifyContent: "center",
+                marginRight: -6,
+                opacity: actionsVisible ? 1 : 0,
+                backgroundColor: plusHover.hovered ? colors.hover : "transparent",
+              }}
+            >
+              <Icon name="Plus" size={15} color={plusHover.hovered ? c.foreground : c.foregroundMuted} />
+            </Pressable>
+          </View>
         ) : null}
       </Pressable>
     </View>
