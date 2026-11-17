@@ -1,4 +1,4 @@
-import { type WorkspaceRef, getPaseoClient, useWorkspace } from "@getpaseo/plugin/client";
+import { type WorkspaceRef, getPaseoClient, useWorkspace, useWorkspaces } from "@getpaseo/plugin/client";
 import { Icon, Modal, ScrollView, TextInput, copyText, useToast } from "@getpaseo/plugin/client/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, type RefObject, createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
@@ -16,8 +16,10 @@ import {
   renameSubmission,
 } from "../../shared/sidebar/workspace-actions";
 import { identityColor } from "../../shared/sidebar/identity-colors";
+import { filterNestCandidates, nestBranchHint, nestSearchMatches, normalizeNestQuery } from "../../shared/sidebar/nest-search";
+import { normalizeCurrentBranch } from "../../shared/sidebar/workspace-row";
 import { eligibleParents, moveOutParent } from "../../shared/sidebar/workspace-tree";
-import { useWorkspaceDetail } from "../workspace-details";
+import { detailKey, useWorkspaceDetail, useWorkspaceDetails } from "../workspace-details";
 import { t } from "../web";
 import { MenuItem, MenuPageHeader, MenuSeparator, OPTION_ICON_SIZE } from "./display-menu/rows";
 import { useWorkspaceLabelCatalog } from "./labels";
@@ -304,7 +306,7 @@ function MenuSurface({
         ) : page === "labels" ? (
           <LabelsPage reference={menu.ref} theme={theme} onCreate={() => nav.open("createLabel")} />
         ) : page === "nest" ? (
-          <NestPage reference={menu.ref} theme={theme} onClose={onClose} />
+          <NestPage reference={menu.ref} theme={theme} compact={compact} onClose={onClose} />
         ) : (
           <CreateLabelPage reference={menu.ref} theme={theme} onDone={nav.back} />
         )}
@@ -500,13 +502,34 @@ function RootPage({
   );
 }
 
-/** The rows of the project this workspace may go under, depth-checked; a press files it and closes. */
-function NestPage({ reference, theme, onClose }: { reference: WorkspaceRef; theme: Theme; onClose: () => void }) {
+/**
+ * The rows of the project this workspace may go under, depth-checked, narrowed by a search field
+ * over each one's title, name and branch; a press files it and closes.
+ */
+function NestPage({ reference, theme, compact, onClose }: { reference: WorkspaceRef; theme: Theme; compact: boolean; onClose: () => void }) {
   const s = t();
+  const c = theme.colors;
   const toast = useToast();
   const tree = useWorkspaceTree();
+  const details = useWorkspaceDetails();
+  const [text, setText] = useState("");
   const project = tree?.treeOf(reference.key) ?? null;
   const candidates = project ? eligibleParents(project.rows, reference.key, sameHostOf(project.refs)) : [];
+  const eligible = new Set(candidates);
+  const query = normalizeNestQuery(text);
+  // The branch as the row's meta line reads it: the followed directory's, else the snapshot's.
+  const matched = useWorkspaces({
+    where: (w) =>
+      query !== "" &&
+      eligible.has(w.ref.key) &&
+      nestSearchMatches(query, {
+        title: w.title,
+        name: w.name,
+        branch: details(detailKey(w.hostId, w.id))?.currentBranch ?? normalizeCurrentBranch(w.branch),
+      }),
+  });
+  const matchedKeys = new Set(matched.map((ref) => ref.key));
+  const shown = filterNestCandidates(candidates, text, (key) => matchedKeys.has(key));
   const pick = (parent: WorkspaceRef) => {
     onClose();
     if (tree && !tree.setParent(reference, parent)) toast.error(s.treeUnavailable);
@@ -514,7 +537,32 @@ function NestPage({ reference, theme, onClose }: { reference: WorkspaceRef; them
   if (!project || candidates.length === 0) return <MenuHint theme={theme}>{s.noNestTargets}</MenuHint>;
   return (
     <>
-      {candidates.map((key) => {
+      <View style={{ paddingHorizontal: 8, paddingBottom: 4 }}>
+        <TextInput
+          value={text}
+          onChangeText={setText}
+          placeholder={s.nestSearchPlaceholder}
+          placeholderTextColor={c.foregroundMuted}
+          accessibilityLabel={s.nestSearchPlaceholder}
+          // A pointer layout gets the caret at once; touch waits for a tap, not a keyboard over the sheet.
+          autoFocus={Platform.OS === "web" && !compact}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+          style={{
+            color: c.foreground,
+            fontSize: 14,
+            borderWidth: 1,
+            borderColor: c.border,
+            borderRadius: 6,
+            paddingHorizontal: 8,
+            paddingVertical: 6,
+            backgroundColor: c.surface0,
+          }}
+        />
+      </View>
+      {shown.length === 0 ? <MenuHint theme={theme}>{s.noMatchingWorkspaces}</MenuHint> : null}
+      {shown.map((key) => {
         const ref = project.refs.get(key);
         const depth = project.rows.find((row) => row.key === key)?.depth ?? 0;
         return ref ? <NestTarget key={key} reference={ref} depth={depth} theme={theme} onPress={() => pick(ref)} /> : null;
@@ -523,12 +571,21 @@ function NestPage({ reference, theme, onClose }: { reference: WorkspaceRef; them
   );
 }
 
-/** One parent to pick, stepped in by its level so the list reads like the tree. */
+/** One parent to pick, stepped in by its level so the list reads like the tree; its branch under it. */
 function NestTarget({ reference, depth, theme, onPress }: { reference: WorkspaceRef; depth: number; theme: Theme; onPress: () => void }) {
   const title = useWorkspaceTitle(reference);
+  const snapshotBranch = useWorkspace(reference, (item) => item.branch);
+  const detail = useWorkspaceDetail(reference);
+  const branch = detail ? detail.currentBranch : normalizeCurrentBranch(snapshotBranch);
   return (
     <View style={{ paddingLeft: depth * 12 }}>
-      <MenuItem theme={theme} label={title} leading={depth > 0 ? <MenuIcon name="CornerDownRight" theme={theme} /> : null} onPress={onPress} />
+      <MenuItem
+        theme={theme}
+        label={title}
+        description={nestBranchHint(title, branch)}
+        leading={depth > 0 ? <MenuIcon name="CornerDownRight" theme={theme} /> : null}
+        onPress={onPress}
+      />
     </View>
   );
 }

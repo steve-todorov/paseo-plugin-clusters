@@ -18,6 +18,7 @@ export const OPTION_ICON_SIZE = 14;
 export function MenuItem({
   theme,
   label,
+  description = null,
   leading = null,
   trailing = null,
   selected,
@@ -27,6 +28,8 @@ export function MenuItem({
 }: {
   theme: Theme;
   label: string;
+  /** A muted second line under the label. */
+  description?: string | null;
   leading?: ReactNode;
   /** Replaces the check a selected row would draw. */
   trailing?: ReactNode;
@@ -68,6 +71,11 @@ export function MenuItem({
         <Text numberOfLines={1} style={{ fontSize: 14, lineHeight: 18, color: c.foreground, fontWeight: "400" }}>
           {label}
         </Text>
+        {description ? (
+          <Text numberOfLines={1} style={{ fontSize: 12, lineHeight: 16, color: c.foregroundMuted }}>
+            {description}
+          </Text>
+        ) : null}
       </View>
       {end ? <View style={{ marginLeft: "auto", alignItems: "center", justifyContent: "center" }}>{end}</View> : null}
     </Pressable>
