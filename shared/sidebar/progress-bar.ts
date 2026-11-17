@@ -59,3 +59,16 @@ export function aggregateRowProgress(rows: readonly (RowProgress | null)[]): Row
     stuck: present.some((row) => row.stuck),
   };
 }
+
+/** The fewest tickets (summed over a folded parent's subtree) for which a row draws its bar. */
+export const MIN_BAR_TICKETS = 2;
+
+/**
+ * Whether a row draws the bar: only for 2 or more tickets, as a one-ticket run says nothing a bar
+ * can add. The pills do not depend on it. A folded parent counts every ticket below it, so
+ * one-ticket children still add up to a roll-up bar.
+ */
+export function showsProgressBar(progress: RowProgress | null): boolean {
+  if (!progress) return false;
+  return progress.segments.reduce((sum, segment) => sum + segment.weight, 0) >= MIN_BAR_TICKETS;
+}

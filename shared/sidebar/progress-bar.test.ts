@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ProgressSummary, ProgressTicketState } from "../progress.ts";
-import { aggregateRowProgress, rowProgressOf, segmentTone } from "./progress-bar.ts";
+import { aggregateRowProgress, rowProgressOf, segmentTone, showsProgressBar } from "./progress-bar.ts";
 
 function summary(states: string, extra: Partial<ProgressSummary> = {}): ProgressSummary {
   const map: Record<string, ProgressTicketState> = { d: "done", w: "working", b: "blocked", t: "waiting", n: "not_started" };
@@ -75,5 +75,29 @@ describe("aggregateRowProgress", () => {
     assert.equal(tones(merged), "done:5 working:1 stuck:1 todo:1");
     assert.equal(merged?.questions, 1);
     assert.equal(merged?.stuck, true);
+  });
+});
+
+describe("showsProgressBar", () => {
+  it("draws no bar for a run with 0 or 1 ticket, and a bar from 2 tickets", () => {
+    assert.equal(showsProgressBar(null), false);
+    assert.equal(showsProgressBar(rowProgressOf(summary("", { questions: 1 }))), false);
+    assert.equal(showsProgressBar(rowProgressOf(summary("w"))), false);
+    assert.equal(showsProgressBar(rowProgressOf(summary("dw"))), true);
+  });
+
+  it("keeps the pills on a one-ticket row that draws no bar", () => {
+    const progress = rowProgressOf(summary("b", { questions: 1, stuck: 1 }));
+    assert.equal(showsProgressBar(progress), false);
+    assert.equal(progress?.questions, 1);
+    assert.equal(progress?.stuck, true);
+  });
+
+  it("draws an epic roll-up bar from several one-ticket children, which still count", () => {
+    const one = aggregateRowProgress([rowProgressOf(summary("d")), null]);
+    assert.equal(showsProgressBar(one), false);
+    const merged = aggregateRowProgress([rowProgressOf(summary("d")), rowProgressOf(summary("w")), rowProgressOf(summary("n"))]);
+    assert.equal(tones(merged), "done:1 working:1 todo:1");
+    assert.equal(showsProgressBar(merged), true);
   });
 });

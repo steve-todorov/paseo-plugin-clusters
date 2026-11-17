@@ -1,6 +1,6 @@
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { Text, View } from "react-native";
-import type { RowProgress, SegmentTone } from "../../shared/sidebar/progress-bar";
+import { type RowProgress, type SegmentTone, showsProgressBar } from "../../shared/sidebar/progress-bar";
 import { t } from "../web";
 import { type Theme, palette } from "./theme";
 
@@ -41,7 +41,7 @@ export function ProgressUnderline({
   /** A selected row is filled with surface2, the panel's grey: the grey steps up to the border. */
   selected: boolean;
 }) {
-  if (progress.segments.length === 0) return null;
+  if (!showsProgressBar(progress)) return null;
   const track = selected ? theme.colors.border : theme.colors.surface2;
   const done = progress.segments.filter((s) => s.tone === "done").reduce((sum, s) => sum + s.weight, 0);
   const total = progress.segments.reduce((sum, s) => sum + s.weight, 0);

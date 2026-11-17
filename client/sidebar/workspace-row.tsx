@@ -14,7 +14,7 @@ import { WorkspaceMetaRow } from "./meta-row";
 import { useSidebarPreferences } from "./preferences";
 import { PROGRESS_BAR_SPACE, ProgressPills, ProgressUnderline } from "./progress-bar";
 import { useRowProgress } from "./progress";
-import type { RowProgress } from "../../shared/sidebar/progress-bar";
+import { type RowProgress, showsProgressBar } from "../../shared/sidebar/progress-bar";
 import { ProjectStatusIndicator } from "./project-icon";
 import { leadingProjectOf, useProjectGrouping } from "./project-grouping";
 import { StatusRing } from "./status-ring";
@@ -143,7 +143,8 @@ export function WorkspaceRow({
   const leading = leadingProjectOf(grouping, { ...w, hostId: reference.hostId }, leadingName);
   const pills = <ProgressPills progress={progress} theme={theme} />;
   const hasPills = progress !== null && (progress.questions > 0 || progress.stuck);
-  const hasBar = progress !== null && progress.segments.length > 0;
+  // No bar (and no extra height) under 2 tickets; a folded parent counts its whole subtree.
+  const hasBar = showsProgressBar(progress);
   // The chevron and the pills sit right after the title; the title then only takes its own width.
   const afterTitle =
     titleAccessory || hasPills ? (
