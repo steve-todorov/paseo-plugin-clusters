@@ -157,6 +157,19 @@ const en = {
   labelName: "Label name",
   labelsLoadFailed: "Unable to load labels",
   labelUpdateFailed: "Unable to update label",
+  // The workspace tree of the Clusters view (the plugin's own).
+  nestUnder: "Nest under…",
+  nestUnderTitle: "Nest under",
+  noNestTargets: "No workspace in this project can take it",
+  moveOutOf: (name: string) => `Move out of ${name}`,
+  nestUnderTarget: (name: string) => `Nest under ${name}`,
+  dropAsSiblingOf: (name: string) => `Drop as sibling of ${name}`,
+  cantNestDeeper: "Can't nest deeper: 2 levels max",
+  cantNestAcrossHosts: "Can't nest under a workspace of another host",
+  expandSubtasks: "Show nested workspaces",
+  collapseSubtasks: "Hide nested workspaces",
+  nestedCount: (count: number) => (count === 1 ? "1 nested workspace" : `${count} nested workspaces`),
+  treeUnavailable: "This host can't keep the workspace tree yet: update the Clusters plugin on it",
 };
 
 const es: typeof en = {
@@ -310,6 +323,18 @@ const es: typeof en = {
   labelName: "Nombre de la etiqueta",
   labelsLoadFailed: "No se pudieron cargar las etiquetas",
   labelUpdateFailed: "No se pudo actualizar la etiqueta",
+  nestUnder: "Anidar bajo…",
+  nestUnderTitle: "Anidar bajo",
+  noNestTargets: "Ningún espacio de trabajo de este proyecto puede acogerlo",
+  moveOutOf: (name) => `Sacar de ${name}`,
+  nestUnderTarget: (name) => `Anidar bajo ${name}`,
+  dropAsSiblingOf: (name) => `Soltar junto a ${name}`,
+  cantNestDeeper: "No se puede anidar más: 2 niveles como máximo",
+  cantNestAcrossHosts: "No se puede anidar bajo un espacio de trabajo de otro host",
+  expandSubtasks: "Mostrar espacios de trabajo anidados",
+  collapseSubtasks: "Ocultar espacios de trabajo anidados",
+  nestedCount: (count) => (count === 1 ? "1 espacio de trabajo anidado" : `${count} espacios de trabajo anidados`),
+  treeUnavailable: "Este host aún no puede guardar el árbol de espacios de trabajo: actualiza allí el plugin Clusters",
 };
 
 export const LANGUAGES: Record<Language, typeof en> = { en, es };

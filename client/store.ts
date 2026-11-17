@@ -13,6 +13,7 @@
  */
 
 import { keyMatchesByText, normalizeStoredKey } from "../shared/project-keys.ts";
+import { type StoredTree, sanitizeTree } from "../shared/sidebar/workspace-tree.ts";
 
 export interface Cluster {
   id: string;
@@ -42,6 +43,8 @@ export interface ClusterState {
   recentHours?: number;
   /** Projects hidden from Recents, with when; they come back once used after that. */
   recentHidden?: Record<string, number>;
+  /** The Clusters view's workspace tree for this daemon's workspaces: child id to parent id. */
+  workspaceTree?: StoredTree;
 }
 
 /** The part stored on the daemon and shared between its clients; `active` stays local to each app. */
@@ -51,6 +54,7 @@ export interface SharedState {
   recentOrder?: string[];
   recentHours?: number;
   recentHidden?: Record<string, number>;
+  workspaceTree?: StoredTree;
   revision: number;
 }
 
@@ -138,6 +142,8 @@ let persistence: Persistence | null = null;
 let merged: MergedCluster[] | null = null;
 /** The connected daemons as the screen lists them, rebuilt on the next read after any change. */
 let nodeList: Node[] | null = null;
+/** Each host's workspace tree, rebuilt on the next read after any change. */
+let trees: Map<string, StoredTree | undefined> | null = null;
 /** The selected circle; undefined until first read. */
 let active: string | null | undefined;
 
@@ -148,6 +154,7 @@ export function setPersistence(next: Persistence | null): void {
 function notify(): void {
   merged = null;
   nodeList = null;
+  trees = null;
   for (const listener of listeners) listener();
 }
 
@@ -231,7 +238,8 @@ function sameShared(a: ClusterState, b: ClusterState): boolean {
     JSON.stringify(a.clusters) === JSON.stringify(b.clusters) &&
     JSON.stringify(a.recentRank ?? {}) === JSON.stringify(b.recentRank ?? {}) &&
     (a.recentHours ?? DEFAULT_RECENT_HOURS) === (b.recentHours ?? DEFAULT_RECENT_HOURS) &&
-    JSON.stringify(a.recentHidden ?? {}) === JSON.stringify(b.recentHidden ?? {})
+    JSON.stringify(a.recentHidden ?? {}) === JSON.stringify(b.recentHidden ?? {}) &&
+    JSON.stringify(a.workspaceTree ?? {}) === JSON.stringify(b.workspaceTree ?? {})
   );
 }
 
@@ -247,6 +255,7 @@ function push(entry: Entry): void {
       recentOrder: orderOfRanks(entry.state.recentRank),
       recentHours: entry.state.recentHours,
       recentHidden: entry.state.recentHidden,
+      workspaceTree: entry.state.workspaceTree,
       revision: entry.revision,
     };
     void entry.sync.write(shared).catch((error: unknown) => {
@@ -277,7 +286,12 @@ function adopt(entry: Entry, raw: SharedState): void {
     recentRank: normalizeKeys(raw.recentRank),
     recentHidden: normalizeKeys(raw.recentHidden),
   };
-  const shared = { ...incoming, recentHidden: mergeHidden(entry.state.recentHidden, incoming.recentHidden) };
+  // A daemon or copy older than the tree drops the field; the tree this client holds stays.
+  const shared = {
+    ...incoming,
+    recentHidden: mergeHidden(entry.state.recentHidden, incoming.recentHidden),
+    workspaceTree: incoming.workspaceTree ?? entry.state.workspaceTree,
+  };
   if (shared.revision <= entry.revision && sameShared(entry.state, { ...entry.state, ...shared })) return;
   if (shared.revision < entry.revision) return;
   entry.revision = shared.revision;
@@ -289,6 +303,7 @@ function adopt(entry: Entry, raw: SharedState): void {
     recentOrder: shared.recentOrder,
     recentHours: shared.recentHours,
     recentHidden: shared.recentHidden,
+    workspaceTree: shared.workspaceTree,
     active: active !== null && active !== ALL_ID && !shared.clusters.some((c) => c.id === active) ? null : active,
   };
   saveCache(entry);
@@ -750,6 +765,38 @@ export function resetStore(): void {
   persistence = null;
   merged = null;
   nodeList = null;
+  trees = null;
   active = undefined;
   hostLabels = null;
+}
+
+/** Every known host's workspace tree, by the app's host id; one snapshot until something changes. */
+export function workspaceTrees(): ReadonlyMap<string, StoredTree | undefined> {
+  if (!trees) {
+    trees = new Map();
+    for (const [host, daemon] of daemonByHost) {
+      const entry = entries.get(daemon);
+      if (entry) trees.set(host, entry.state.workspaceTree);
+    }
+  }
+  return trees;
+}
+
+/**
+ * Files a workspace under another (or at top level, with null) in the tree of the daemon its host
+ * runs on. False when that daemon is not known here, or the link would make a loop or go deeper
+ * than the tree allows: nothing is stored then.
+ */
+export function setWorkspaceParent(hostId: string, id: string, parentId: string | null): boolean {
+  const daemon = daemonByHost.get(hostId);
+  const entry = daemon ? entries.get(daemon) : undefined;
+  if (!entry || !entry.loaded) return false;
+  const current = entry.state.workspaceTree ?? {};
+  if ((current[id] ?? null) === parentId) return true;
+  const next: Record<string, string> = { ...current };
+  if (parentId === null) delete next[id];
+  else next[id] = parentId;
+  if (parentId !== null && sanitizeTree(next) !== next) return false;
+  setState(entry, { ...entry.state, workspaceTree: next });
+  return true;
 }

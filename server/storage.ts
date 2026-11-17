@@ -1,4 +1,5 @@
 import type { RpcInput } from "@getpaseo/plugin";
+import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -6,6 +7,7 @@ import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { writeState } from "../shared/storage";
 import { stateSchema } from "../shared/storage";
+import { treeToStore } from "../shared/sidebar/workspace-tree";
 import { PLUGIN_VERSION } from "../shared/version";
 import { PASEO_HOME } from "./paseo-home";
 
@@ -69,14 +71,42 @@ export async function readClusters() {
   }
 }
 
-export async function writeClusters({ state }: RpcInput<typeof writeState>) {
+/** Listing pages are capped at 200 by the daemon. */
+const PAGE_LIMIT = 200;
+
+/**
+ * Ids of this daemon's workspaces that are not archived, background ones included; null when they
+ * could not all be listed, so the tree is then kept as sent rather than pruned on partial news.
+ */
+async function liveWorkspaceIds(context: PluginHandlerContext | undefined): Promise<Set<string> | null> {
+  if (!context) return null;
+  try {
+    const ids = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const page = await context.paseo.workspaces.list({ filter: { includeBackground: true }, page: { limit: PAGE_LIMIT, cursor } });
+      for (const workspace of page.entries) ids.add(workspace.id);
+      cursor = page.pageInfo.hasMore ? (page.pageInfo.nextCursor ?? undefined) : undefined;
+    } while (cursor);
+    return ids;
+  } catch (error) {
+    console.warn("[paseo-clusters] Could not list workspaces to tidy the workspace tree", error);
+    return null;
+  }
+}
+
+export async function writeClusters({ state }: RpcInput<typeof writeState>, context?: PluginHandlerContext) {
   // A client that has not read this daemon yet starts from revision 0 and an empty copy; letting it
   // write would wipe the clusters every other client shares. It catches up on its next read.
   const stored = (await readClusters()).state;
   if (stored && state.revision < stored.revision) return { revision: stored.revision };
+  // Archived parents leave the tree here, so every device reads the promoted subtree back.
+  const live = state.workspaceTree && Object.keys(state.workspaceTree).length > 0 ? await liveWorkspaceIds(context) : null;
+  const workspaceTree = treeToStore(state.workspaceTree, stored?.workspaceTree, live);
+  const next = workspaceTree === undefined ? state : { ...state, workspaceTree };
   await mkdir(dirname(FILE), { recursive: true });
   const temporary = `${FILE}.tmp`;
-  await writeFile(temporary, JSON.stringify(state, null, 2), "utf8");
+  await writeFile(temporary, JSON.stringify(next, null, 2), "utf8");
   await rename(temporary, FILE);
   return { revision: state.revision };
 }

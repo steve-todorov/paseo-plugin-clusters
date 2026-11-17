@@ -6,7 +6,10 @@ import {
   currentDaemon,
   daemonOfKey,
   recentKeys,
+  registerHost,
   registerProjectKey,
+  setWorkspaceParent,
+  workspaceTrees,
   registerProjectPath,
   setRanks,
   topRank,
@@ -361,4 +364,57 @@ test("local keys stored as remote:host: read back as host: keys, order kept and 
   assert.deepEqual(state.clusters[0]?.projects, ["remote:github.com/a/b", "host:srv_1:/home/me/slides", "host:srv_1:/home/me/x"]);
   assert.deepEqual(state.recentRank, { "host:srv_1:/home/me/slides": 9 });
   assert.deepEqual(state.recentHidden, { "host:srv_1:/home/me/x": 3 });
+});
+
+test("a workspace is filed under its parent on the daemon of its host, and no other", async () => {
+  setPersistence(null);
+  const mine = fakeDaemon("mine", { clusters: [], revision: 1 });
+  const theirs = fakeDaemon("theirs", { clusters: [], revision: 1 });
+  const a = startDaemon(mine.sync, { pollMs: 0 });
+  const b = startDaemon(theirs.sync, { pollMs: 0 });
+  await settle();
+  registerHost(a, "host-a");
+  registerHost(b, "host-b");
+
+  assert.equal(setWorkspaceParent("host-a", "child", "epic"), true);
+  assert.equal(setWorkspaceParent("host-a", "grandchild", "child"), true);
+  assert.equal(setWorkspaceParent("host-c", "x", "y"), false, "a host with no daemon here keeps nothing");
+
+  assert.deepEqual(workspaceTrees().get("host-a"), { child: "epic", grandchild: "child" });
+  assert.equal(workspaceTrees().get("host-b"), undefined);
+  assert.equal(workspaceTrees(), workspaceTrees(), "one snapshot until something changes");
+
+  // Moving out to top level drops the link.
+  setWorkspaceParent("host-a", "grandchild", null);
+  assert.deepEqual(getState(a).workspaceTree, { child: "epic" });
+
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.deepEqual(mine.writes.at(-1)?.workspaceTree, { child: "epic" });
+  assert.equal(theirs.writes.length, 0);
+});
+
+test("a nest past two levels, or into its own subtree, is not stored", async () => {
+  setPersistence(null);
+  const mine = fakeDaemon("mine", { clusters: [], revision: 1, workspaceTree: { b: "a", c: "b" } });
+  const a = startDaemon(mine.sync, { pollMs: 0 });
+  await settle();
+  registerHost(a, "host-a");
+
+  assert.equal(setWorkspaceParent("host-a", "d", "c"), false, "too deep");
+  assert.equal(setWorkspaceParent("host-a", "a", "c"), false, "a loop");
+  assert.deepEqual(getState(a).workspaceTree, { b: "a", c: "b" });
+});
+
+test("a daemon copy without a tree (an older plugin) does not wipe the one this client holds", async () => {
+  setPersistence(null);
+  const mine = fakeDaemon("mine", { clusters: [], revision: 1, workspaceTree: { child: "epic" } });
+  const a = startDaemon(mine.sync, { pollMs: 0 });
+  await settle();
+  assert.deepEqual(getState(a).workspaceTree, { child: "epic" });
+
+  // An older copy rewrites the state without the field, with a newer revision.
+  await mine.sync.write({ clusters: [cluster("work")], revision: 5 });
+  await pull(a);
+  assert.deepEqual(getState(a).clusters.map((c) => c.name), ["work"]);
+  assert.deepEqual(getState(a).workspaceTree, { child: "epic" });
 });

@@ -30,6 +30,11 @@ export const stateSchema = z.object({
   recentHours: z.union([z.literal(-1), z.number().int().min(1).max(48)]).optional(),
   /** Projects hidden from Recents, and when; they return once used after that. */
   recentHidden: z.record(z.string(), z.number()).optional(),
+  /**
+   * The Clusters view's hand-built workspace tree: this daemon's workspace ids to their parent's
+   * id. Sent from 0.5.9 on; a write without it (an older copy) leaves the stored tree alone.
+   */
+  workspaceTree: z.record(z.string(), z.string()).optional(),
   /** Bumped on every write so clients can tell whose copy is newer. */
   revision: z.number().default(0),
 });

@@ -16,11 +16,13 @@ import {
   renameSubmission,
 } from "../../shared/sidebar/workspace-actions";
 import { identityColor } from "../../shared/sidebar/identity-colors";
+import { eligibleParents, moveOutParent } from "../../shared/sidebar/workspace-tree";
 import { useWorkspaceDetail } from "../workspace-details";
 import { t } from "../web";
 import { MenuItem, MenuPageHeader, MenuSeparator, OPTION_ICON_SIZE } from "./display-menu/rows";
 import { useWorkspaceLabelCatalog } from "./labels";
 import type { Theme } from "./theme";
+import { sameHostOf, useWorkspaceTitle, useWorkspaceTree } from "./workspace-tree";
 
 /*
  * A workspace row's actions, as Paseo's default sidebar offers them (components/sidebar/
@@ -33,7 +35,8 @@ import type { Theme } from "./theme";
  *   PaseoApi), Open in file manager (the desktop shell's), and the archive's Undo
  *   (`undoWorkspaceArchive` is not in PaseoApi).
  * The menu opens as a popover by its kebab on wide layouts and as a bottom sheet on compact ones,
- * like the display menu.
+ * like the display menu. In the project grouping it also files the row in the Clusters view's
+ * workspace tree ("Nest under…", "Move out of"), the touch way to do what a drag does.
  */
 
 /** Paseo's workspace menu width. */
@@ -49,7 +52,7 @@ export interface ArchiveTarget {
   aheadOfOrigin: number | null;
 }
 
-type MenuPage = "root" | "labels" | "createLabel";
+type MenuPage = "root" | "labels" | "createLabel" | "nest";
 
 interface OpenMenu {
   ref: WorkspaceRef;
@@ -289,13 +292,19 @@ function MenuSurface({
   const body = (
     <>
       {page === "root" ? null : (
-        <MenuPageHeader theme={theme} title={page === "labels" ? s.labelsTitle : s.createLabel} onBack={nav.back} />
+        <MenuPageHeader
+          theme={theme}
+          title={page === "labels" ? s.labelsTitle : page === "nest" ? s.nestUnderTitle : s.createLabel}
+          onBack={nav.back}
+        />
       )}
       <View style={{ paddingVertical: 4 }}>
         {page === "root" ? (
           <RootPage reference={menu.ref} theme={theme} archiving={archiving} onClose={onClose} onOpen={nav.open} onRename={onRename} onArchive={onArchive} />
         ) : page === "labels" ? (
           <LabelsPage reference={menu.ref} theme={theme} onCreate={() => nav.open("createLabel")} />
+        ) : page === "nest" ? (
+          <NestPage reference={menu.ref} theme={theme} onClose={onClose} />
         ) : (
           <CreateLabelPage reference={menu.ref} theme={theme} onDone={nav.back} />
         )}
@@ -380,8 +389,20 @@ function RootPage({
     archivingAt: item.archivingAt,
   }));
   const detail = useWorkspaceDetail(reference);
+  const tree = useWorkspaceTree();
+  const project = tree?.treeOf(reference.key) ?? null;
+  const parentKey = project?.rows.find((row) => row.key === reference.key)?.parent ?? null;
+  const parentTitle = useWorkspaceTitle(parentKey ? project?.refs.get(parentKey) : null);
   if (!w) return null;
   const branch = detail ? detail.currentBranch : w.branch;
+  const canNest = project !== null && eligibleParents(project.rows, reference.key, sameHostOf(project.refs)).length > 0;
+  const outTo = project ? moveOutParent(project.rows, reference.key) : undefined;
+  const moveOut = () => {
+    onClose();
+    if (!tree || !project || outTo === undefined) return;
+    const target = outTo === null ? null : (project.refs.get(outTo) ?? null);
+    if (!tree.setParent(reference, target)) toast.error(s.treeUnavailable);
+  };
   const isArchiving = w.archivingAt !== null || archiving.has(reference.key);
 
   const copy = (text: string, done: string) => {
@@ -441,6 +462,24 @@ function RootPage({
         trailing={<Icon name="ChevronRight" size={14} color={theme.colors.foregroundMuted} />}
         onPress={() => onOpen("labels")}
       />
+      {project && (canNest || outTo !== undefined) ? (
+        <>
+          <MenuSeparator theme={theme} />
+          {canNest ? (
+            <MenuItem
+              theme={theme}
+              label={s.nestUnder}
+              leading={<MenuIcon name="ListTree" theme={theme} />}
+              trailing={<Icon name="ChevronRight" size={14} color={theme.colors.foregroundMuted} />}
+              onPress={() => onOpen("nest")}
+            />
+          ) : null}
+          {outTo !== undefined ? (
+            <MenuItem theme={theme} label={s.moveOutOf(parentTitle)} leading={<MenuIcon name="CornerLeftUp" theme={theme} />} onPress={moveOut} />
+          ) : null}
+          <MenuSeparator theme={theme} />
+        </>
+      ) : null}
       <MenuItem
         theme={theme}
         label={isArchiving ? s.archiving : s.archive}
@@ -458,6 +497,39 @@ function RootPage({
         }
       />
     </>
+  );
+}
+
+/** The rows of the project this workspace may go under, depth-checked; a press files it and closes. */
+function NestPage({ reference, theme, onClose }: { reference: WorkspaceRef; theme: Theme; onClose: () => void }) {
+  const s = t();
+  const toast = useToast();
+  const tree = useWorkspaceTree();
+  const project = tree?.treeOf(reference.key) ?? null;
+  const candidates = project ? eligibleParents(project.rows, reference.key, sameHostOf(project.refs)) : [];
+  const pick = (parent: WorkspaceRef) => {
+    onClose();
+    if (tree && !tree.setParent(reference, parent)) toast.error(s.treeUnavailable);
+  };
+  if (!project || candidates.length === 0) return <MenuHint theme={theme}>{s.noNestTargets}</MenuHint>;
+  return (
+    <>
+      {candidates.map((key) => {
+        const ref = project.refs.get(key);
+        const depth = project.rows.find((row) => row.key === key)?.depth ?? 0;
+        return ref ? <NestTarget key={key} reference={ref} depth={depth} theme={theme} onPress={() => pick(ref)} /> : null;
+      })}
+    </>
+  );
+}
+
+/** One parent to pick, stepped in by its level so the list reads like the tree. */
+function NestTarget({ reference, depth, theme, onPress }: { reference: WorkspaceRef; depth: number; theme: Theme; onPress: () => void }) {
+  const title = useWorkspaceTitle(reference);
+  return (
+    <View style={{ paddingLeft: depth * 12 }}>
+      <MenuItem theme={theme} label={title} leading={depth > 0 ? <MenuIcon name="CornerDownRight" theme={theme} /> : null} onPress={onPress} />
+    </View>
   );
 }
 

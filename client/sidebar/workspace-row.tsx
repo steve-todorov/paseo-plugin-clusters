@@ -43,6 +43,10 @@ export function WorkspaceRow({
   leadingName = "group",
   indented = false,
   dragging = false,
+  titleAccessory = null,
+  summary = null,
+  statusOverride = null,
+  dimmed = false,
 }: {
   reference: WorkspaceRef;
   theme: Theme;
@@ -61,6 +65,14 @@ export function WorkspaceRow({
   indented?: boolean;
   /** Lifted by a drag. */
   dragging?: boolean;
+  /** Drawn right after the title (a tree parent's chevron); the title then only takes its own width. */
+  titleAccessory?: ReactNode;
+  /** Drawn before the trailing slot (a collapsed tree parent's count pill). */
+  summary?: ReactNode;
+  /** Shown in the status slot instead of the row's own (a collapsed tree parent's roll-up). */
+  statusOverride?: string | null;
+  /** Lifted over a drop that is refused: the content fades, as the mock's denied row. */
+  dimmed?: boolean;
 }) {
   const w = useWorkspace(reference, (item) => ({
     name: item.name,
@@ -124,7 +136,7 @@ export function WorkspaceRow({
         ...(pressed ? { backgroundColor: c.surface2 } : null),
       })}
     >
-      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, width: "100%" }}>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, width: "100%", opacity: dimmed ? 0.45 : 1 }}>
         {hoisted ? (
           <ProjectStatusIndicator
             project={leading.project}
@@ -136,7 +148,7 @@ export function WorkspaceRow({
             theme={theme}
           />
         ) : (
-          <StatusIndicator indicator={w.indicator} kind={w.kind} theme={theme} />
+          <StatusIndicator indicator={statusOverride ?? w.indicator} kind={w.kind} theme={theme} />
         )}
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
@@ -151,14 +163,31 @@ export function WorkspaceRow({
                 onCancel={actions.cancelInlineRename}
               />
             ) : (
-              <Text
-                numberOfLines={1}
-                style={{ flex: 1, minWidth: 0, color: c.foreground, fontSize: 14, fontWeight: "400", lineHeight: LINE, opacity: hovered ? 1 : 0.76 }}
-              >
-                {title}
-              </Text>
+              <>
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    ...(titleAccessory ? { flexShrink: 1 } : { flex: 1 }),
+                    minWidth: 0,
+                    color: c.foreground,
+                    fontSize: 14,
+                    fontWeight: "400",
+                    lineHeight: LINE,
+                    opacity: hovered ? 1 : 0.76,
+                  }}
+                >
+                  {title}
+                </Text>
+                {titleAccessory ? (
+                  <>
+                    {titleAccessory}
+                    <View style={{ flex: 1 }} />
+                  </>
+                ) : null}
+              </>
             )}
             <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, flexShrink: 0 }}>
+              {summary}
               <WorkspaceTrailingSlot
                 reference={reference}
                 workspace={w}
@@ -188,7 +217,7 @@ export function WorkspaceRow({
 }
 
 /** The 16×20 status slot of a workspace row, per status, as Paseo draws it. */
-function StatusIndicator({ indicator, kind, theme }: { indicator: string; kind: string; theme: Theme }) {
+export function StatusIndicator({ indicator, kind, theme }: { indicator: string; kind: string; theme: Theme }) {
   const colors = palette(theme);
   const dot = (color: string, opacity = 1) => <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color, opacity }} />;
   let content: ReactNode;

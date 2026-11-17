@@ -5,17 +5,21 @@ import { Platform, Pressable, Text, View } from "react-native";
 import { selectSidebarGroupVisibility } from "../../shared/sidebar/group-visibility";
 import type { HostBadgeModel } from "../../shared/sidebar/host-badges";
 import { type ProjectGroup, iconPlacementOf, newWorkspacePlacementOf } from "../../shared/sidebar/project-groups";
+import { type TreeLinks, type TreeRow, buildTree, collapseRows, resolveDrop, subtreeOf } from "../../shared/sidebar/workspace-tree";
 import { t } from "../web";
-import { type DragHandleProps, DragList, useGuardedPress } from "./drag-list";
+import { type DragHandleProps, DragList, type TreeDrag, useGuardedPress } from "./drag-list";
 import { GhostRow } from "./ghost-row";
 import { ProjectIcon, useProjectIconData } from "./project-icon";
 import { projectRefOf } from "./project-grouping";
 import { LINE, ROW_HEIGHT, type Theme, draggingRowStyle, palette } from "./theme";
-import { WorkspaceRow, useHover } from "./workspace-row";
+import { useHover } from "./workspace-row";
+import { type TreeCue, TreeDropOverlay, TreeRowView, cueOf, sameHostOf } from "./workspace-tree";
 
 /*
  * A project of Paseo's "Project" grouping (components/sidebar-workspace-list.tsx `ProjectBlock`,
  * v0.16): its row, then its unpinned workspaces, 7 plus whatever is not done until "Show more".
+ * The workspaces form the user's hand-built tree (./workspace-tree.tsx); "Show more" counts a
+ * top-level row with everything under it as one.
  */
 
 type HostBadges = ReadonlyMap<string, HostBadgeModel>;
@@ -44,8 +48,16 @@ export interface ProjectBlockProps {
   dragging?: boolean;
   /** Set when the project can be dragged: goes on its row only, as Paseo's drag handle. */
   handle?: DragHandleProps;
-  /** Set under the Manual sort: the workspaces can be dragged, and a drop hands their new order here. */
-  onReorderWorkspaces?: (keys: string[]) => void;
+  /** The workspace tree, as links between workspace keys. */
+  links: TreeLinks;
+  /** Tree parents folded on this device. */
+  collapsedTree: ReadonlySet<string>;
+  onToggleTree: (key: string) => void;
+  /**
+   * Set under the Manual sort: the workspaces can be dragged, onto a row to nest or between rows
+   * to reorder. A drop hands the dragged row, its new parent and the project's new order here.
+   */
+  onTreeDrop?: (dragged: WorkspaceRef, parent: WorkspaceRef | null, order: string[]) => void;
 }
 
 export function ProjectBlock({
@@ -65,7 +77,10 @@ export function ProjectBlock({
   busyKeys,
   dragging = false,
   handle,
-  onReorderWorkspaces,
+  links,
+  collapsedTree,
+  onToggleTree,
+  onTreeDrop,
 }: ProjectBlockProps) {
   const [expanded, setExpanded] = useState(false);
   const head = useWorkspace(items[0], (w) => ({
@@ -85,38 +100,82 @@ export function ProjectBlock({
   let children: ReactNode = null;
   if (!collapsed) {
     if (rows.length > 0) {
+      const refs = new Map(items.map((ref) => [ref.key, ref]));
+      // The whole tree checks depth (a pinned parent still counts); the shown one moves a pinned
+      // row's subtree up a level, as the row itself is in Pinned.
+      const full = buildTree(items.map((ref) => ref.key), links);
+      const display = buildTree(rows.map((ref) => ref.key), links);
+      const blocks: TreeRow[][] = [];
+      for (const row of display) {
+        if (row.depth === 0 || blocks.length === 0) blocks.push([row]);
+        else blocks[blocks.length - 1].push(row);
+      }
       const { leadingItem, visibleItems, canToggle } = selectSidebarGroupVisibility({
-        items: rows,
+        items: blocks,
         expanded,
-        policy: { kind: "workspaces", isDone: (ref) => !busyKeys.has(ref.key) },
-        isOpen: (ref) => ref.key === activeKey,
+        policy: { kind: "workspaces", isDone: (block) => block.every((row) => !busyKeys.has(row.key)) },
+        isOpen: (block) => block.some((row) => row.key === activeKey),
       });
-      const renderRow = (ref: WorkspaceRef, rowDragging = false) => (
-        <WorkspaceRow
-          key={ref.key}
-          reference={ref}
-          theme={theme}
-          now={now}
-          selected={ref.key === activeKey}
-          navigation={navigation}
-          hostBadge={hostBadges.get(ref.hostId) ?? null}
-          dragging={rowDragging}
-        />
-      );
+      const leading = leadingItem ? collapseRows(leadingItem, collapsedTree) : [];
+      const shown = collapseRows(visibleItems.flat(), collapsedTree);
+      const renderRow = (row: TreeRow, list: readonly TreeRow[], cue: TreeCue | null = null, rowDragging = false) => {
+        const ref = refs.get(row.key);
+        if (!ref) return null;
+        const next = list[list.indexOf(row) + 1];
+        return (
+          <TreeRowView
+            key={row.key}
+            row={row}
+            reference={ref}
+            childrenShow={next !== undefined && next.parent === row.key}
+            collapsed={collapsedTree.has(row.key)}
+            onToggle={() => onToggleTree(row.key)}
+            subtree={subtreeOf(display, row.key)}
+            cue={cue}
+            dragging={rowDragging}
+            theme={theme}
+            now={now}
+            selected={row.key === activeKey}
+            navigation={navigation}
+            hostBadge={hostBadges.get(ref.hostId) ?? null}
+          />
+        );
+      };
+      const canLink = sameHostOf(refs);
+      const treeDrag: TreeDrag<TreeCue> | undefined = onTreeDrop
+        ? {
+            resolve: (dragged, target, zone) => {
+              const plan = resolveDrop({ rows: full, visible: shown.map((row) => row.key), dragged, target, zone, canLink });
+              const refused = zone === "middle" && plan.refused ? (canLink(dragged, target) ? "depth" : "host") : null;
+              if (plan.kind === "none" && !plan.refused) return null;
+              return cueOf({ plan, target, shown, refused });
+            },
+            onDrop: (dragged, cue) => {
+              const ref = refs.get(dragged);
+              if (!ref || !cue.plan) return;
+              onTreeDrop(ref, cue.plan.parent ? (refs.get(cue.plan.parent) ?? null) : null, cue.plan.order);
+            },
+            renderOverlay: (cue, slotOf) => <TreeDropOverlay cue={cue} slotOf={slotOf} refs={refs} theme={theme} />,
+          }
+        : undefined;
       children = (
         <>
           {/* The open workspace shown past the limit stays put, outside the draggable rows. */}
-          {leadingItem ? renderRow(leadingItem) : null}
-          {onReorderWorkspaces ? (
-            <DragList
-              items={visibleItems}
-              keyOf={(ref) => ref.key}
-              enabled
-              onReorder={(reordered) => onReorderWorkspaces(reordered.map((ref) => ref.key))}
-              renderItem={(ref, state) => <View {...state.handle}>{renderRow(ref, state.dragging)}</View>}
-            />
+          {leading.map((row) => renderRow(row, leading))}
+          {treeDrag ? (
+            // The overlay is laid out in this box, the rows' own coordinates.
+            <View style={{ position: "relative" }}>
+              <DragList
+                items={shown}
+                keyOf={(row) => row.key}
+                enabled
+                onReorder={() => undefined}
+                tree={treeDrag}
+                renderItem={(row, state) => <View {...state.handle}>{renderRow(row, shown, state.cue, state.dragging)}</View>}
+              />
+            </View>
           ) : (
-            visibleItems.map((ref) => renderRow(ref))
+            shown.map((row) => renderRow(row, shown))
           )}
           {canToggle ? (
             <GhostRow

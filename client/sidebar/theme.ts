@@ -36,8 +36,23 @@ export function palette(theme: Theme) {
     merged: dark ? "#a890d5" : "#7347af",
     hover: theme.colors.surface1,
     selected: theme.colors.surface2,
+    // The workspace tree's guides and drag cues (the approved mock's values; the app has none).
+    guide: dark ? "rgba(161, 165, 164, 0.16)" : "rgba(113, 117, 116, 0.22)",
+    nestFill: dark ? "rgba(32, 116, 74, 0.20)" : "rgba(32, 116, 74, 0.10)",
+    nestOutline: dark ? "#2f9e64" : "#20744a",
+    nestLine: dark ? "#3fb57a" : "#20744a",
+    nestGhostFill: dark ? "rgba(32, 116, 74, 0.06)" : "rgba(32, 116, 74, 0.05)",
+    nestGhostBorder: dark ? "rgba(63, 181, 122, 0.55)" : "rgba(32, 116, 74, 0.5)",
+    nestGhostText: dark ? "#6cae96" : "#20744a",
+    denyFill: dark ? "rgba(247, 121, 109, 0.08)" : "rgba(241, 46, 47, 0.06)",
+    denyOutline: dark ? "rgba(247, 121, 109, 0.6)" : "rgba(241, 46, 47, 0.5)",
   };
 }
+
+/** Each level of the workspace tree steps in this far (Option A). */
+export const TREE_INDENT = 20;
+/** The status slot's centre from a row's left edge (8 padding + half the 16 slot): where guides run. */
+export const TREE_GUIDE_X = 16;
 
 /**
  * A row being dragged (`projectRowDragging` / `workspaceRowDragging`): lifted on surface2 with a

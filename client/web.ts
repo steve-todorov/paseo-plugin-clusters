@@ -5,6 +5,7 @@ import { createPresence } from "../shared/presence";
 import { type ProjectListing, canonicalClusterKey } from "../shared/project-keys";
 import { projectLiveness } from "../shared/project-list";
 import { MAX_IMAGE_LENGTH } from "../shared/storage";
+import type { StoredTree } from "../shared/sidebar/workspace-tree";
 import * as store from "./store";
 import type { Cluster, ClusterState, Daemon, DaemonSync, MergedCluster } from "./store";
 
@@ -967,6 +968,20 @@ export function reorderClusterProjects(id: string, ordered: readonly string[]): 
   store.reorderProjects(id, ordered);
 }
 
+/** Every known host's Clusters-view workspace tree, by the app's host id. */
+export function workspaceTrees(): ReadonlyMap<string, StoredTree | undefined> {
+  const other = otherOwner();
+  if (other) return other.workspaceTrees();
+  return store.workspaceTrees();
+}
+
+/** Files a workspace under another, or at top level with null, on the daemon of its host. */
+export function setWorkspaceParent(hostId: string, id: string, parentId: string | null): boolean {
+  const other = otherOwner();
+  if (other) return other.setWorkspaceParent(hostId, id, parentId);
+  return store.setWorkspaceParent(hostId, id, parentId);
+}
+
 /** Every connected daemon's clusters, each on its own. */
 export function mergedClusters(): MergedCluster[] {
   const other = otherOwner();
@@ -1611,6 +1626,8 @@ interface Owner {
   removeWorkspace: typeof removeWorkspace;
   moveProjectToCluster: typeof moveProjectToCluster;
   reorderClusterProjects: typeof reorderClusterProjects;
+  workspaceTrees: typeof workspaceTrees;
+  setWorkspaceParent: typeof setWorkspaceParent;
   mergedClusters: typeof mergedClusters;
   getActive: typeof getActive;
   setActive: typeof setActive;
@@ -1637,7 +1654,7 @@ interface Owner {
  * the same page. An older copy owning the slot cannot answer what a newer one asks of it, so they
  * take separate slots and each runs on its own until every daemon is on the same version.
  */
-const OWNER_KEY = "__paseoClustersOwner:13";
+const OWNER_KEY = "__paseoClustersOwner:14";
 let self: Owner | null = null;
 
 function ownerSlot(): { [OWNER_KEY]?: Owner } {
@@ -1660,6 +1677,8 @@ function otherOwner(): Owner | null {
     removeWorkspace,
     moveProjectToCluster,
     reorderClusterProjects,
+    workspaceTrees,
+    setWorkspaceParent,
     mergedClusters,
     getActive,
     setActive,

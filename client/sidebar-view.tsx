@@ -1,11 +1,12 @@
-import type { PluginSidebarViewProps } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/ui";
+import type { PluginSidebarViewProps, WorkspaceRef } from "@getpaseo/plugin/client";
+import { Icon, useToast } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { defaultHostAppearance, selectHostBadges, shouldShowSidebarHostLabels } from "../shared/sidebar/host-badges";
 import type { SidebarPreferences } from "../shared/sidebar/preferences";
 import { rekeyStoredOrders } from "../shared/sidebar/project-groups";
 import { computeSidebarOrderUpdates, hasVisibleOrderChanged, orderAfterDrop } from "../shared/sidebar/reorder";
+import { buildTree, linksOfHosts } from "../shared/sidebar/workspace-tree";
 import { DisplayMenuSurface, DisplayMenuTrigger, useDisplayMenuState } from "./sidebar/display-menu";
 import { DragHostProvider, DragList, useDragHost } from "./sidebar/drag-list";
 import { FilterEmptyState } from "./sidebar/filter-empty";
@@ -17,6 +18,7 @@ import { StatusSection } from "./sidebar/status-section";
 import { type Theme, palette } from "./sidebar/theme";
 import { useSidebarList } from "./sidebar/use-sidebar-list";
 import { WorkspaceActionsProvider, useWorkspaceActionsHost } from "./sidebar/workspace-actions";
+import { type ProjectTree, type WorkspaceTreeApi, WorkspaceTreeProvider } from "./sidebar/workspace-tree";
 import { keyMatcherOf, useHostProjectLists } from "./project-index";
 import { WorkspaceDetailsProvider, useWorkspaceDetailsSource } from "./workspace-details";
 import {
@@ -32,8 +34,10 @@ import {
   normalizeRecentHours,
   reorderClusterProjects,
   setActive,
+  setWorkspaceParent,
   subscribe,
   t,
+  workspaceTrees,
 } from "./web";
 
 /*
@@ -54,10 +58,14 @@ export interface ClustersSidebarViewProps extends PluginSidebarViewProps {
 export function ClustersSidebarView({ theme, layout, navigation, active, daemon, onManage }: ClustersSidebarViewProps) {
   const c = theme.colors;
   const strings = t();
+  const toast = useToast();
   const selected = useSyncExternalStore(subscribe, getActive);
   const clusters = useSyncExternalStore(subscribe, mergedClusters);
   const snapshot = useCallback(() => getState(daemon), [daemon]);
   const state = useSyncExternalStore(subscribe, snapshot);
+  // The hand-built workspace tree, shared through each host's daemon.
+  const trees = useSyncExternalStore(subscribe, workspaceTrees);
+  const links = useMemo(() => linksOfHosts(trees), [trees]);
   // While this view is on screen, the circle bar injected into the Default view stays out.
   useEffect(() => claimSidebarView(), []);
   // Recents and the timestamps age by the clock, not only by data changes.
@@ -126,6 +134,16 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
       const next = orderAfterDrop(current.workspaceOrderByProject[projectKey] ?? [], keys);
       return next ? { ...current, workspaceOrderByProject: { ...current.workspaceOrderByProject, [projectKey]: next } } : current;
     });
+  // A drop in the tree: the new parent goes to the daemon of the row's host (every device shares
+  // it); the order among siblings stays this device's Manual order, as Paseo keeps it per device.
+  const dropInTree = (projectKey: string) => (dragged: WorkspaceRef, parent: WorkspaceRef | null, order: string[]) => {
+    const parentKey = parent?.key ?? null;
+    if ((links.get(dragged.key) ?? null) !== parentKey && !setWorkspaceParent(dragged.hostId, dragged.id, parent?.id ?? null)) {
+      toast.error(strings.treeUnavailable);
+      return;
+    }
+    reorderWorkspaces(projectKey)(order);
+  };
   const reorderPinned = (keys: string[]) =>
     update((current) => {
       const next = orderAfterDrop(current.pinnedWorkspaceOrder, keys);
@@ -170,6 +188,31 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
     });
     // `update` and the closure's inputs are all here: the groups, the view and the settings.
   }, [ready, list.groups, lists, inAll, settings, update]);
+
+  // Tree parents folded on this device, kept with the project and status sections.
+  const collapsedTree = useMemo(
+    () => new Set(Array.from(collapsed).flatMap((key) => (key.startsWith("tree:") ? [key.slice(5)] : []))),
+    [collapsed],
+  );
+  // The row menu's "Nest under…" and "Move out of": each project's whole tree, pinned rows included.
+  const projectTrees = useMemo(() => {
+    const byKey = new Map<string, ProjectTree>();
+    for (const group of list.groups) {
+      const tree: ProjectTree = {
+        rows: buildTree(group.items.map((ref) => ref.key), links),
+        refs: new Map(group.items.map((ref) => [ref.key, ref])),
+      };
+      for (const ref of group.items) byKey.set(ref.key, tree);
+    }
+    return byKey;
+  }, [list.groups, links]);
+  const treeApi = useMemo<WorkspaceTreeApi>(
+    () => ({
+      treeOf: (key) => projectTrees.get(key) ?? null,
+      setParent: (ref, parent) => setWorkspaceParent(ref.hostId, ref.id, parent?.id ?? null),
+    }),
+    [projectTrees],
+  );
 
   const label = recent ? strings.recentsTooltip(hours) : (cluster?.name ?? strings.allLabel);
 
@@ -257,7 +300,10 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
             hostBadges={hostBadges}
             dragging={state.dragging}
             handle={state.handle}
-            onReorderWorkspaces={workspacesDrag ? reorderWorkspaces(group.key) : undefined}
+            links={links}
+            collapsedTree={collapsedTree}
+            onToggleTree={(key) => toggle(`tree:${key}`)}
+            onTreeDrop={workspacesDrag ? dropInTree(group.key) : undefined}
           />
         )}
       />
@@ -353,7 +399,8 @@ export function ClustersSidebarView({ theme, layout, navigation, active, daemon,
                 anchorTop={anchorTop}
                 bounds={bounds}
               />
-              {rowActions.surface}
+              {/* The menu files rows in the tree, which shows in the project grouping only. */}
+              <WorkspaceTreeProvider value={preferences.grouping === "project" ? treeApi : null}>{rowActions.surface}</WorkspaceTreeProvider>
             </View>
           </WorkspaceActionsProvider>
         </WorkspaceDetailsProvider>

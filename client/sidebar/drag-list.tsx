@@ -13,6 +13,7 @@ import {
   type View,
   type ViewStyle,
 } from "react-native";
+import type { DropZone } from "../../shared/sidebar/workspace-tree";
 import {
   MOUSE_DRAG_DISTANCE,
   type Slot,
@@ -159,10 +160,27 @@ export type DragHandleProps = GestureResponderHandlers & {
   style: ViewStyle;
 };
 
-export interface DragItemState {
+export interface DragItemState<C = never> {
   dragging: boolean;
   /** Absent while dragging is off. */
   handle: DragHandleProps | undefined;
+  /** Tree mode: what releasing now would do, for the rows to draw their cue; null otherwise. */
+  cue: C | null;
+}
+
+/** The band at a row's top and bottom that means "between rows" rather than "onto this row". */
+const EDGE_ZONE = IS_WEB ? 8 : 12;
+
+/**
+ * Tree mode: rows stay put while one is dragged (no stepping aside); the row under the dragged
+ * one's centre and the band of it (top edge, middle, bottom edge) are handed to `resolve`, whose
+ * cue the rows and `renderOverlay` draw, and a release hands that cue to `onDrop`.
+ */
+export interface TreeDrag<C> {
+  resolve(dragged: string, target: string, zone: DropZone): C | null;
+  onDrop(dragged: string, cue: C): void;
+  /** Drawn over the rows, in the rows' own coordinates (`slotOf` gives each row's box). */
+  renderOverlay(cue: C, slotOf: (key: string) => Slot | undefined): ReactNode;
 }
 
 interface Gesture {
@@ -179,6 +197,8 @@ interface Gesture {
   keys: string[];
   slots: Slot[];
   startOffset: number;
+  cue: unknown;
+  cueId: string;
 }
 
 const idle = (): Gesture => ({
@@ -194,6 +214,8 @@ const idle = (): Gesture => ({
   keys: [],
   slots: [],
   startOffset: 0,
+  cue: null,
+  cueId: "",
 });
 
 // Text selection on web would end the responder; the app's rows set the same.
@@ -208,23 +230,27 @@ function pointOf(event: GestureResponderEvent): { x: number; y: number } {
  * A list whose rows can be dragged into a new order. `onReorder` gets the rows in their new order
  * once a drop moved one; the caller stores it.
  */
-export function DragList<T>({
+export function DragList<T, C = never>({
   items,
   keyOf,
   enabled,
   onReorder,
   renderItem,
+  tree,
 }: {
   items: readonly T[];
   keyOf: (item: T) => string;
   enabled: boolean;
   onReorder: (items: T[]) => void;
-  renderItem: (item: T, state: DragItemState) => ReactNode;
+  renderItem: (item: T, state: DragItemState<C>) => ReactNode;
+  /** Set for a tree: drops nest or land between rows instead of reordering a flat list. */
+  tree?: TreeDrag<C>;
 }) {
   const host = useContext(DragHostContext);
   const [activeKey, setActiveKey] = useState<string | null>(null);
-  const latest = useRef({ items, keyOf, enabled, onReorder, host });
-  latest.current = { items, keyOf, enabled, onReorder, host };
+  const [cue, setCue] = useState<C | null>(null);
+  const latest = useRef({ items, keyOf, enabled, onReorder, host, tree });
+  latest.current = { items, keyOf, enabled, onReorder, host, tree };
   const slots = useRef(new Map<string, Slot>());
   const values = useRef(new Map<string, Animated.Value>());
   const gesture = useRef<Gesture>(idle());
@@ -252,6 +278,28 @@ export function DragList<T>({
     const scrolled = (latest.current.host?.offset() ?? 0) - g.startOffset;
     const dy = pointerY.current - g.start.y + scrolled;
     valueOf(g.key).setValue(dy);
+    const treeDrag = latest.current.tree;
+    if (treeDrag) {
+      // The dragged row's centre picks the row under it, and the band of that row.
+      const own = g.slots[g.from];
+      const y = (own?.top ?? 0) + (own?.height ?? 0) / 2 + dy;
+      const index = g.slots.findIndex((slot, i) => i !== g.from && y >= slot.top && y < slot.top + slot.height);
+      let next: C | null = null;
+      if (index >= 0) {
+        const slot = g.slots[index];
+        const offset = y - slot.top;
+        const edge = Math.min(EDGE_ZONE, slot.height / 4);
+        const zone: DropZone = offset < edge ? "top" : offset > slot.height - edge ? "bottom" : "middle";
+        next = treeDrag.resolve(g.keys[g.from], g.keys[index], zone);
+      }
+      const id = next === null ? "" : JSON.stringify(next);
+      if (id !== g.cueId) {
+        g.cue = next;
+        g.cueId = id;
+        setCue(next);
+      }
+      return;
+    }
     const to = dropIndex(g.slots, g.from, dy);
     if (to === g.to) return;
     g.to = to;
@@ -313,6 +361,12 @@ export function DragList<T>({
     if (g.touch) h?.lockScroll(false);
     h?.holdPresses(false);
     setActiveKey(null);
+    setCue(null);
+    const treeDrag = latest.current.tree;
+    if (treeDrag) {
+      if (commit && g.cue !== null && g.key !== null) treeDrag.onDrop(g.key, g.cue as C);
+      return;
+    }
     if (!commit || g.to === g.from) return;
     // By key: the list may have changed under the drag. Rows that arrived meanwhile keep the end.
     const { items: now, keyOf: keyOfNow } = latest.current;
@@ -445,10 +499,11 @@ export function DragList<T>({
               transform: [{ translateY: valueOf(key) }, { scale: dragging && IS_WEB ? 1.02 : 1 }],
             }}
           >
-            {renderItem(item, { dragging, handle: enabled ? handleOf(key) : undefined })}
+            {renderItem(item, { dragging, handle: enabled ? handleOf(key) : undefined, cue })}
           </Animated.View>
         );
       })}
+      {tree && cue !== null ? tree.renderOverlay(cue, (key) => slots.current.get(key)) : null}
     </>
   );
 }
